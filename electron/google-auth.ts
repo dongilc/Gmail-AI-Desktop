@@ -6,8 +6,10 @@ import * as path from 'path';
 import * as url from 'url';
 import { Account } from '../src/types';
 
-// OAuth 설정
-const CREDENTIALS_PATH = path.join(__dirname, '../oauth/credentials.json');
+// OAuth 설정 - dev: <project>/oauth/, production: <resources>/oauth/
+const CREDENTIALS_PATH = app.isPackaged
+  ? path.join(process.resourcesPath, 'oauth/credentials.json')
+  : path.join(__dirname, '../oauth/credentials.json');
 const TOKENS_DIR = path.join(app.getPath('userData'), 'tokens');
 
 // API 스코프 - Gmail, Calendar, Tasks 모두 포함
@@ -53,10 +55,13 @@ export class GoogleAuth {
 
   private loadCredentials(): void {
     try {
+      console.log('[Auth] Loading credentials from:', CREDENTIALS_PATH);
       const content = fs.readFileSync(CREDENTIALS_PATH, 'utf-8');
       this.credentials = JSON.parse(content);
+      console.log('[Auth] Credentials loaded successfully');
     } catch (error) {
-      console.error('Failed to load credentials:', error);
+      console.error('[Auth] Failed to load credentials from:', CREDENTIALS_PATH);
+      console.error('[Auth] Error:', error);
     }
   }
 

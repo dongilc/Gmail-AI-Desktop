@@ -66,6 +66,13 @@
       "dist/**/*",
       "dist-electron/**/*"
     ],
+    "extraResources": [
+      {
+        "from": "oauth/",
+        "to": "oauth/",
+        "filter": ["credentials.json"]
+      }
+    ],
     "win": {
       "target": "portable",
       "sign": null
