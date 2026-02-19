@@ -63,7 +63,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setBriefingLanguage: (value) => set({ briefingLanguage: value }),
       briefingNewsKeyword: '\uAD6D\uC81C\uC774\uC288',
       setBriefingNewsKeyword: (value) => set({ briefingNewsKeyword: value }),
-      aiServerUrl: 'http://192.168.50.220:11434',
+      aiServerUrl: 'http://localhost:11434',
       setAiServerUrl: (value) => set({ aiServerUrl: value }),
       aiModel: 'llama3.1:8b',
       setAiModel: (value) => set({ aiModel: value }),

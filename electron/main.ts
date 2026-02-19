@@ -26,7 +26,7 @@ const gmailService = new GmailService();
 const calendarService = new CalendarService();
 const tasksService = new TasksService();
 const execFileAsync = promisify(execFile);
-const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://192.168.50.220:11434';
+const OLLAMA_BASE_URL = process.env.OLLAMA_BASE_URL || 'http://localhost:11434';
 const OLLAMA_MODEL = process.env.OLLAMA_MODEL || 'llama3.1:8b';
 const OLLAMA_TEMPERATURE = process.env.OLLAMA_TEMPERATURE
   ? Number(process.env.OLLAMA_TEMPERATURE)

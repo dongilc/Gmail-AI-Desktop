@@ -982,7 +982,7 @@ function AiServerTab() {
             <Input
               value={aiServerUrl}
               onChange={(e) => setAiServerUrl(e.target.value)}
-              placeholder="http://192.168.50.220:11434"
+              placeholder="http://localhost:11434"
             />
           </div>
           <div className="space-y-1">
