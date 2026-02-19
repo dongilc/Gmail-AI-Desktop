@@ -87,7 +87,7 @@ git log --oneline --decorate -5
 
 ## 10) Security/credentials notes
 - `tokens/` contains OAuth tokens. Treat as sensitive.
-- `ref_google_calendar_widget/credentials.json` exists (also sensitive).
+- `oauth/credentials.json` exists (also sensitive).
 
 ## 11) Optional: quick sanity checks
 1) Open Settings -> General -> toggle summary

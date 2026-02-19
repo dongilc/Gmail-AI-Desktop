@@ -6,8 +6,8 @@ import * as path from 'path';
 import * as url from 'url';
 import { Account } from '../src/types';
 
-// OAuth 설정 - ref_google_calendar_widget의 credentials 사용
-const CREDENTIALS_PATH = path.join(__dirname, '../ref_google_calendar_widget/credentials.json');
+// OAuth 설정
+const CREDENTIALS_PATH = path.join(__dirname, '../oauth/credentials.json');
 const TOKENS_DIR = path.join(app.getPath('userData'), 'tokens');
 
 // API 스코프 - Gmail, Calendar, Tasks 모두 포함

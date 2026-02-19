@@ -7,7 +7,7 @@ dist-electron/
 release/
 
 # Credentials (sensitive)
-credentials/*.json
+oauth/
 tokens/
 ref_google_calendar_widget/
 

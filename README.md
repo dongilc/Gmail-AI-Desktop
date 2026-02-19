@@ -54,7 +54,7 @@ To use this app, you need to create your own Google Cloud project and OAuth cred
 7. Download the credentials JSON file
 8. Rename it to `credentials.json` and place it in:
    ```
-   <project-root>/ref_google_calendar_widget/credentials.json
+   <project-root>/oauth/credentials.json
    ```
 9. Go to **APIs & Services > OAuth consent screen**
 10. Add your Gmail addresses as **Test users** (required while the app is in "Testing" status)
@@ -75,15 +75,15 @@ cd Gmail-AI-Desktop
 npm install
 
 # Place your credentials.json (see Google OAuth Setup above)
-mkdir -p ref_google_calendar_widget
-cp /path/to/your/credentials.json ref_google_calendar_widget/credentials.json
+mkdir -p oauth
+cp /path/to/your/credentials.json oauth/credentials.json
 ```
 
 ### From Release
 
 1. Download `Gmail-Desktop-v1-win-x64.zip` from the [Releases](https://github.com/dongilc/Gmail-AI-Desktop/releases) page
 2. Extract the zip file
-3. Place your `credentials.json` in the `resources/ref_google_calendar_widget/` folder next to the exe
+3. Place your `credentials.json` in the `resources/oauth/` folder next to the exe
 4. Run `Gmail Desktop.exe`
 
 ## Running (Development)
