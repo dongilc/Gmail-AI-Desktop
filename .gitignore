@@ -1,0 +1,37 @@
+# Dependencies
+node_modules/
+
+# Build outputs
+dist/
+dist-electron/
+release/
+
+# Credentials (sensitive)
+credentials/*.json
+tokens/
+ref_google_calendar_widget/
+
+# Environment
+.env
+.env.local
+
+# IDE
+.vscode/
+.idea/
+.claude/settings.local.json
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+npm-debug.log*
+
+# Windows oddities
+nul
+
+# Installers & external tools
+*.msi
+[LLM*]/
+[Office*]/
