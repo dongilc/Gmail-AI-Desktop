@@ -4,17 +4,33 @@ A feature-rich Gmail desktop client built with Electron, React, and TypeScript. 
 
 ## Features
 
+### Core
 - **Multi-Account Gmail** - Manage up to 4 Gmail accounts with OAuth2 authentication
-- **AI Email Summary** - Summarize emails using a local LLM via Ollama (right-click context menu)
+- **Email Compose & Reply** - Full compose, reply, reply-all, forward with BCC support
+- **Draft Auto-Save** - Automatic draft saving with proper MIME/base64 encoding
+- **Email Search** - Search emails across your mailbox
+- **Email Print / PDF Export** - Print or save emails as PDF
+- **Dark / Light Mode** - Full theme support with improved light theme contrast
+- **Auto Refresh** - Configurable periodic email sync (1/3/5/10/15/30 min intervals)
+
+### AI Features (Ollama)
+- **AI Email Summary** - Summarize emails using a local LLM (right-click context menu)
 - **AI Mail Recommendations** - AI prioritizes unread emails that need your attention
 - **AI Calendar Extraction** - Automatically parse event details from emails
-- **AI Weather & News Briefing** - Local LLM-powered information panel
+- **AI Weather & News Briefing** - Local LLM-powered daily information panel
+- **AI Chat & Translation** - Built-in AI assistant with translation support
+
+### Document Preview
+- **PDF Preview** - HiDPI-aware rendering for sharp display on high-resolution screens
+- **HWP/HWPX Preview** - Korean Hangul document preview via native Rust parser (@ohah/hwpjs)
+- **HTML Attachment Preview** - Preview HTML file attachments inline
+- **Office Document Preview** - Preview Word, Excel, PowerPoint files via LibreOffice
+
+### Productivity
 - **Calendar** - Day/week/month views, create and edit events, synced with Google Calendar
 - **Tasks / Todo** - Sortable task list with quick-add from emails
+- **Contact Autocomplete** - Auto-collected contacts with name/email search in compose
 - **Action Chips** - Detects actionable keywords (submit, meeting, payment, reservation, review, approval, survey)
-- **Email Print / PDF Export** - Print or save emails as PDF
-- **Office Document Preview** - Preview Word, Excel, PowerPoint files via LibreOffice
-- **Dark Mode** - Full dark theme support
 
 ## Prerequisites
 
@@ -81,7 +97,7 @@ cp /path/to/your/credentials.json oauth/credentials.json
 
 ### From Release
 
-1. Download `Gmail-Desktop-v1-win-x64.zip` from the [Releases](https://github.com/dongilc/Gmail-AI-Desktop/releases) page
+1. Download from the [Releases](https://github.com/dongilc/Gmail-AI-Desktop/releases) page
 2. Extract the zip file
 3. Place your `credentials.json` in the `resources/oauth/` folder next to the exe
 4. Run `Gmail Desktop.exe`
@@ -117,24 +133,28 @@ Output will be in the `release/` folder:
 
 ### Ollama (AI Server)
 
-AI features can be configured in **Settings > AI** within the app, or via environment variables:
+AI features can be configured in **Settings > AI** within the app:
 
-| Variable | Default | Description |
+| Setting | Default | Description |
 |---|---|---|
-| `OLLAMA_BASE_URL` | `http://192.168.50.220:11434` | Ollama server URL |
-| `OLLAMA_MODEL` | `llama3.1:8b` | LLM model name |
-| `OLLAMA_TEMPERATURE` | `0.2` | Generation temperature |
-| `OLLAMA_NUM_PREDICT` | `1024` | Max tokens per response |
+| Server URL | `http://localhost:11434` | Ollama server URL |
+| Model | `llama3.1:8b` | LLM model name |
+| Temperature | `0.2` | Generation temperature |
+| Max Tokens | `1024` | Max tokens per response |
 
-> **Tip:** If running Ollama locally, set the URL to `http://localhost:11434` in Settings > AI.
+### Auto Refresh
+
+Configure in **Settings > General**:
+- Enable/disable periodic auto-refresh
+- Set interval: 1, 3, 5, 10, 15, or 30 minutes
 
 ### AI Features Overview
 
 | Feature | Trigger | Description |
 |---|---|---|
-| Email Summary | Right-click > "AI Summary" | Summarizes the selected email in Korean |
-| Mail Recommendations | Click refresh in AI panel | AI picks top 5 important unread emails |
-| Calendar Extraction | Right-click > "AI Calendar Add" | Parses date/time/location from email |
+| Email Summary | Right-click > "AI요약 생성" | Summarizes the selected email |
+| Mail Recommendations | Header AI panel | AI picks top 5 important unread emails |
+| Calendar Extraction | Right-click > "AI 캘린더 추가" | Parses date/time/location from email |
 | Weather Briefing | AI Assistant panel | Local weather via Open-Meteo API + LLM |
 | News Briefing | AI Assistant panel | Google News RSS + LLM summary |
 
@@ -147,7 +167,7 @@ Gmail-AI-Desktop/
 │   ├── preload.ts             # Context bridge (IPC to renderer)
 │   ├── google-auth.ts         # OAuth2 flow and token management
 │   └── services/
-│       ├── gmail-service.ts   # Gmail API wrapper
+│       ├── gmail-service.ts   # Gmail API wrapper (MIME, draft, send)
 │       ├── calendar-service.ts# Google Calendar API
 │       ├── tasks-service.ts   # Google Tasks API
 │       └── cache-service.ts   # Local email cache (electron-store)
@@ -155,14 +175,26 @@ Gmail-AI-Desktop/
 │   ├── components/            # UI components
 │   │   ├── Dashboard.tsx      # Main layout
 │   │   ├── EmailList.tsx      # Email list with action chips
-│   │   ├── EmailView.tsx      # Email detail view
+│   │   ├── EmailView.tsx      # Email detail, compose, attachment preview
+│   │   ├── EmailCompose.tsx   # New email composition
+│   │   ├── ContactInput.tsx   # Contact autocomplete input
+│   │   ├── ContactsDialog.tsx # Contacts management dialog
 │   │   ├── Calendar.tsx       # Calendar views
 │   │   ├── TodoList.tsx       # Task management
+│   │   ├── PdfViewer.tsx      # HiDPI PDF renderer
+│   │   ├── SearchBar.tsx      # Email search
 │   │   ├── SettingsDialog.tsx  # Settings UI
-│   │   ├── AIAssistantPanel.tsx    # AI chat/weather/news
+│   │   ├── AIAssistantPanel.tsx    # AI chat/briefing/translate
 │   │   ├── AIMailRecommendations.tsx # AI email suggestions
 │   │   └── ui/               # Reusable UI primitives (Radix-based)
 │   ├── stores/                # Zustand state management
+│   │   ├── emails.ts          # Email state with race condition guards
+│   │   ├── accounts.ts        # Multi-account management
+│   │   ├── contacts.ts        # Auto-collected contacts (localStorage)
+│   │   ├── preferences.ts     # App settings (persist)
+│   │   └── ...
+│   ├── hooks/
+│   │   └── useAutoRefresh.ts  # Periodic auto-refresh hook
 │   ├── types/                 # TypeScript type definitions
 │   └── lib/                   # Utility functions
 ├── package.json
@@ -176,8 +208,9 @@ Gmail-AI-Desktop/
 - **Desktop:** Electron 28
 - **Frontend:** React 18, TypeScript, Vite
 - **Styling:** TailwindCSS, Radix UI
-- **State:** Zustand
+- **State:** Zustand (with localStorage persistence)
 - **APIs:** Google APIs (Gmail, Calendar, Tasks), Ollama, Open-Meteo
+- **Document:** @ohah/hwpjs (HWP), @ssabrojs/hwpxjs (HWPX), pdf.js
 - **Storage:** electron-store
 
 ## License
