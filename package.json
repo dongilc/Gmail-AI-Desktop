@@ -1,6 +1,6 @@
 {
   "name": "gmail-desktop-client",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Gmail 통합 데스크톱 클라이언트 - 4개 계정 관리, 캘린더, 투두 연동",
   "author": "Gmail Desktop Dev",
   "main": "dist-electron/main.js",

@@ -1,4 +1,4 @@
-# Gmail Desktop v2 - Migration & Setup Notes
+# Gmail Desktop v1.1.0 - Migration & Setup Notes
 
 This note helps you move the project to another PC and continue working without losing context.
 
@@ -59,7 +59,7 @@ Output:
 ## 7) Git versioning
 Local git repo initialized.
 - Tag `v1` exists.
-- Current working branch: `v2`
+- Current working branch: `v1.1.0`
 
 Basic commands:
 ```powershell
@@ -78,7 +78,7 @@ git log --oneline --decorate -5
 - Email view: print/PDF buttons + action buttons near reply row.
 - Multi-select email: bulk read/unread/trash via right-click menu.
 
-## 9) Files added/changed recently (v2)
+## 9) Files added/changed recently (v1.1.0)
 - `src/components/EmailList.tsx` (summary/actions UI, event dialog)
 - `src/components/SettingsDialog.tsx` (General tab + summary toggle)
 - `src/stores/preferences.ts` (new preference store)
@@ -103,11 +103,11 @@ Copy/paste this block when you start a new session on another PC:
 ```
 Project: Gmail Desktop (Electron + React + TS)
 Repo path: C:\Users\<user>\Downloads\Gmail_AI_Desktop
-Branch: v2
+Branch: v1.1.0
 Version tag: v1 (base snapshot)
 
 Current focus:
-- v2 UI features for AI assistant (summary card UI + action chips).
+- v1.1.0 UI features for AI assistant (summary card UI + action chips).
 - Action chips from keywords, summary toggle, +calendar event flow.
 
 Recent changes (important):
