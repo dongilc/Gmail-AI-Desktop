@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('gmail:download-attachment', accountId, messageId, attachmentId, filename),
   previewOfficeAttachment: (accountId: string, messageId: string, attachmentId: string, filename: string) =>
     ipcRenderer.invoke('gmail:preview-office-attachment', accountId, messageId, attachmentId, filename),
+  previewHwpAttachment: (accountId: string, messageId: string, attachmentId: string, filename: string) =>
+    ipcRenderer.invoke('gmail:preview-hwp-attachment', accountId, messageId, attachmentId, filename),
   syncEmails: (accountId: string) =>
     ipcRenderer.invoke('gmail:sync', accountId),
 
@@ -119,6 +121,12 @@ declare global {
         attachmentId: string,
         filename: string
       ) => Promise<{ ok: boolean; data?: string; filename?: string; reason?: string }>;
+      previewHwpAttachment: (
+        accountId: string,
+        messageId: string,
+        attachmentId: string,
+        filename: string
+      ) => Promise<{ ok: boolean; html?: string; reason?: string }>;
       syncEmails: (accountId: string) => Promise<any>;
 
       // Cache

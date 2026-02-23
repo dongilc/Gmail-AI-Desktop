@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { CheckSquare, Plus, Loader2, Mail, ExternalLink, Info, ArrowDownUp, Trash2, Pencil, GripVertical } from "lucide-react";
+import { CheckSquare, Plus, Loader2, Mail, ExternalLink, Info, ArrowDownUp, Trash2, Pencil, GripVertical, RefreshCw } from "lucide-react";
 import { useAccountsStore } from "@/stores/accounts";
 import { useTasksStore } from "@/stores/tasks";
 import { useEmailsStore } from "@/stores/emails";
@@ -81,6 +81,20 @@ export function TodoList() {
   const [sortDir, setSortDir] = useState<"asc" | "desc">("asc");
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const handleRefresh = async () => {
+    if (!currentAccountId || isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await fetchTaskLists(currentAccountId);
+      if (selectedTaskListId) {
+        await fetchTasks(currentAccountId, selectedTaskListId);
+      }
+    } finally {
+      setIsRefreshing(false);
+    }
+  };
 
   const toLocalInputValue = (date: Date) => {
     const offset = date.getTimezoneOffset() * 60000;
@@ -265,6 +279,16 @@ export function TodoList() {
             >
               <ArrowDownUp className="h-3.5 w-3.5 mr-1" />
               {sortDir === "asc" ? LABEL_SORT_ASC : LABEL_SORT_DESC}
+            </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              title="새로고침"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
             </Button>
           </div>
         </div>

@@ -13,6 +13,7 @@
     "clean": "rimraf dist dist-electron node_modules/.vite"
   },
   "dependencies": {
+    "@ohah/hwpjs": "^0.1.0-rc.5",
     "@radix-ui/react-checkbox": "^1.0.4",
     "@radix-ui/react-context-menu": "^2.1.5",
     "@radix-ui/react-dialog": "^1.0.5",
@@ -22,6 +23,7 @@
     "@radix-ui/react-separator": "^1.0.3",
     "@radix-ui/react-tabs": "^1.0.4",
     "@radix-ui/react-tooltip": "^1.0.7",
+    "@ssabrojs/hwpxjs": "^0.2.0",
     "class-variance-authority": "^0.7.0",
     "clsx": "^2.1.0",
     "date-fns": "^3.0.6",
@@ -70,7 +72,9 @@
       {
         "from": "oauth/",
         "to": "oauth/",
-        "filter": ["credentials.json"]
+        "filter": [
+          "credentials.json"
+        ]
       }
     ],
     "win": {

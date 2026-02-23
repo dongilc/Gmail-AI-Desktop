@@ -14,9 +14,11 @@ import { TodoList } from './TodoList';
 import { QuickAddTodo } from './QuickAddTodo';
 import { SearchBar } from './SearchBar';
 import { SettingsDialog } from './SettingsDialog';
+import { ContactsDialog } from './ContactsDialog';
 import { Resizer } from './ui/resizer';
 import { AIStatus } from './AIStatus';
 import { AIMailRecommendations } from './AIMailRecommendations';
+import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 
 export function Dashboard() {
   const { selectedEmail, startCompose, isLoading: isEmailLoading, isSyncing } = useEmailsStore();
@@ -24,10 +26,13 @@ export function Dashboard() {
   const { isLoading: isCalendarLoading } = useCalendarStore();
   const { aiServerUrl, aiModel, aiTemperature, aiNumPredict } = usePreferencesStore();
 
+  // 주기적 자동 새로고침
+  useAutoRefresh();
+
   // 패널 크기 상태
   const [sidebarWidth, setSidebarWidth] = useState(220);
   const [emailListWidth, setEmailListWidth] = useState(480);
-  const [rightPanelWidth, setRightPanelWidth] = useState(416);
+  const [rightPanelWidth, setRightPanelWidth] = useState(430);
   const [calendarHeight, setCalendarHeight] = useState(50); // percentage
   const [startupMinDone, setStartupMinDone] = useState(false);
   const [startupVisible, setStartupVisible] = useState(true);
@@ -102,15 +107,13 @@ export function Dashboard() {
       <header className="h-14 border-b flex items-center justify-between px-4 drag-region">
         <div className="flex items-center gap-4 no-drag">
           <AccountSwitcher />
-          <AIStatus />
-        </div>
-
-        <div className="flex-1 flex justify-center no-drag">
+          <SearchBar />
           <AIMailRecommendations />
         </div>
 
         <div className="flex items-center gap-4 no-drag">
-          <SearchBar />
+          <AIStatus />
+          <ContactsDialog />
           <SettingsDialog />
         </div>
       </header>

@@ -82,20 +82,24 @@ export function PdfViewer({ data }: PdfViewerProps) {
 
       try {
         const page = await pdf.getPage(currentPage);
-        const viewport = page.getViewport({ scale });
+        const dpr = window.devicePixelRatio || 1;
+        const cssViewport = page.getViewport({ scale });
+        const renderViewport = page.getViewport({ scale: scale * dpr });
 
         const canvas = canvasRef.current;
         const context = canvas.getContext('2d');
         if (!context) return;
 
-        // 캔버스 초기화
-        canvas.height = viewport.height;
-        canvas.width = viewport.width;
+        // HiDPI: 물리 픽셀 크기로 캔버스 설정, CSS는 논리적 크기
+        canvas.width = renderViewport.width;
+        canvas.height = renderViewport.height;
+        canvas.style.width = `${cssViewport.width}px`;
+        canvas.style.height = `${cssViewport.height}px`;
         context.clearRect(0, 0, canvas.width, canvas.height);
 
         const renderContext = {
           canvasContext: context,
-          viewport: viewport,
+          viewport: renderViewport,
           canvas,
         };
 

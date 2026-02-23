@@ -109,6 +109,8 @@ export const useAccountsStore = create<AccountsState>((set, get) => ({
     try {
       const account = await window.electronAPI.login();
       const { accounts } = get();
+      // localStorage에 저장해야 reload 후에도 새 계정이 선택됨
+      localStorage.setItem('lastAccountId', account.id);
       set({
         accounts: [...accounts.filter((a) => a.id !== account.id), account],
         currentAccountId: account.id,

@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/context-menu';
 import { Resizer } from './ui/resizer';
 import { PdfViewer } from './PdfViewer';
+import { ContactInput } from './ContactInput';
 import {
   formatFullDate,
   formatTime,
@@ -30,6 +31,49 @@ import {
   formatAddressLabel,
 } from '@/lib/utils';
 import type { EmailDraft, EmailAttachment } from '@/types';
+
+const ADDRESS_COLLAPSE_THRESHOLD = 10;
+
+function CollapsibleAddressList({
+  label,
+  addresses,
+  className,
+}: {
+  label: string;
+  addresses: { name?: string; email: string }[];
+  className?: string;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  const shouldCollapse = addresses.length > ADDRESS_COLLAPSE_THRESHOLD;
+  const visibleAddresses = shouldCollapse && !expanded
+    ? addresses.slice(0, ADDRESS_COLLAPSE_THRESHOLD)
+    : addresses;
+  const hiddenCount = addresses.length - ADDRESS_COLLAPSE_THRESHOLD;
+
+  return (
+    <div className={cn('text-xs text-muted-foreground', className)}>
+      {label}: {visibleAddresses.map((t) => formatAddressLabel(t.name, t.email)).join(', ')}
+      {shouldCollapse && !expanded && (
+        <button
+          type="button"
+          className="ml-1 text-blue-400 hover:text-blue-300 hover:underline"
+          onClick={() => setExpanded(true)}
+        >
+          ...외 {hiddenCount}명 더보기
+        </button>
+      )}
+      {shouldCollapse && expanded && (
+        <button
+          type="button"
+          className="ml-1 text-blue-400 hover:text-blue-300 hover:underline"
+          onClick={() => setExpanded(false)}
+        >
+          접기
+        </button>
+      )}
+    </div>
+  );
+}
 
 function EmailViewComponent() {
   const { currentAccountId, accounts } = useAccountsStore();
@@ -45,6 +89,7 @@ function EmailViewComponent() {
     currentView,
     isComposing,
     setComposing,
+    composeTo,
   } = useEmailsStore(
     (state) => ({
       selectedEmail: state.selectedEmail,
@@ -58,6 +103,7 @@ function EmailViewComponent() {
       currentView: state.currentView,
       isComposing: state.isComposing,
       setComposing: state.setComposing,
+      composeTo: state.composeTo,
     }),
     shallow
   );
@@ -78,10 +124,12 @@ function EmailViewComponent() {
   // 답장/전달 폼 데이터
   const [replyTo, setReplyTo] = useState('');
   const [replyCc, setReplyCc] = useState('');
+  const [replyBcc, setReplyBcc] = useState('');
   const [replySubject, setReplySubject] = useState('');
   const [replyBody, setReplyBody] = useState('');
   const [attachedFiles, setAttachedFiles] = useState<File[]>([]);
   const draftTimerRef = useRef<number | null>(null);
+  const saveDraftNowRef = useRef<(() => void) | null>(null);
   const lastDraftKeyRef = useRef<string>('');
   const initialDraftKeyRef = useRef<string>('');
   const replyQuoteRef = useRef<string>('');
@@ -177,6 +225,7 @@ function EmailViewComponent() {
 
   // PDF 미리보기 상태
   const [pdfPreview, setPdfPreview] = useState<{ data: string; filename: string } | null>(null);
+  const [hwpPreview, setHwpPreview] = useState<{ html: string; filename: string } | null>(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
 
   // 본문이 아직 로딩 중인지 확인
@@ -194,10 +243,11 @@ function EmailViewComponent() {
     setIsForwarding(false);
     setReplyTo('');
     setReplyCc('');
+    setReplyBcc('');
     setReplySubject('');
     setReplyBody('');
     setAttachedFiles([]);
-    setDraftId(null);
+    setDraftId(selectedEmail?.draftId || null);
     lastDraftKeyRef.current = '';
     initialDraftKeyRef.current = '';
     replyQuoteRef.current = '';
@@ -212,10 +262,12 @@ function EmailViewComponent() {
     if (selectedEmail && isDraftEmail) {
       const toValue = selectedEmail.to?.map((t) => t.email).join(', ') || '';
       const ccValue = selectedEmail.cc?.map((t) => t.email).join(', ') || '';
+      const bccValue = selectedEmail.bcc?.map((t) => t.email).join(', ') || '';
       const subjectValue = selectedEmail.subject || '';
-      const bodyValue = selectedEmail.body || selectedEmail.snippet || '';
+      const bodyValue = selectedEmail.body || '';
       setReplyTo(toValue);
       setReplyCc(ccValue);
+      setReplyBcc(bccValue);
       setReplySubject(subjectValue);
       setReplyBody(bodyValue);
       initialDraftKeyRef.current = buildDraftKey(
@@ -228,10 +280,31 @@ function EmailViewComponent() {
     }
   }, [selectedEmailId, isDraftEmail]);
 
+  // draft 본문이 뒤늦게 로드되면 편집 폼 갱신
+  const draftBodyLoaded = isDraftEmail && selectedEmail?.body;
+  useEffect(() => {
+    if (!isDraftEmail || !selectedEmail?.body) return;
+    // body가 비어있을 때만 갱신 (사용자가 이미 편집한 경우 덮어쓰지 않음)
+    if (replyBody !== '') return;
+    const toValue = selectedEmail.to?.map((t) => t.email).join(', ') || '';
+    const ccValue = selectedEmail.cc?.map((t) => t.email).join(', ') || '';
+    const subjectValue = selectedEmail.subject || '';
+    const bodyValue = selectedEmail.body;
+    setReplyBody(bodyValue);
+    initialDraftKeyRef.current = buildDraftKey(
+      sanitizeAddresses(toValue),
+      sanitizeAddresses(ccValue),
+      subjectValue.trim(),
+      bodyValue,
+      []
+    );
+  }, [draftBodyLoaded]);
+
   useEffect(() => {
     if (!isComposeOnly) return;
-    setReplyTo('');
+    setReplyTo(composeTo || '');
     setReplyCc('');
+    setReplyBcc('');
     setReplySubject('');
     setReplyBody('');
     setAttachedFiles([]);
@@ -661,6 +734,7 @@ function EmailViewComponent() {
       setComposing(false);
       setReplyTo('');
       setReplyCc('');
+      setReplyBcc('');
       setReplySubject('');
       setReplyBody('');
       setAttachedFiles([]);
@@ -678,10 +752,12 @@ function EmailViewComponent() {
     if (isDraftEmail && selectedEmail) {
       const toValue = selectedEmail.to?.map((t) => t.email).join(', ') || '';
       const ccValue = selectedEmail.cc?.map((t) => t.email).join(', ') || '';
+      const bccValue = selectedEmail.bcc?.map((t) => t.email).join(', ') || '';
       const subjectValue = selectedEmail.subject || '';
-      const bodyValue = selectedEmail.body || selectedEmail.snippet || '';
+      const bodyValue = selectedEmail.body || '';
       setReplyTo(toValue);
       setReplyCc(ccValue);
+      setReplyBcc(bccValue);
       setReplySubject(subjectValue);
       setReplyBody(bodyValue);
       setAttachedFiles([]);
@@ -704,6 +780,7 @@ function EmailViewComponent() {
     setIsForwarding(false);
     setReplyTo('');
     setReplyCc('');
+    setReplyBcc('');
     setReplySubject('');
     setReplyBody('');
     setAttachedFiles([]);
@@ -1152,6 +1229,7 @@ function EmailViewComponent() {
 
     const toList = sanitizeAddresses(replyTo);
     const ccList = sanitizeAddresses(replyCc);
+    const bccList = sanitizeAddresses(replyBcc);
     const subject = replySubject.trim();
     const body = replyBody;
     const attachmentKeys = attachedFiles.map((file) => `${file.name}:${file.size}:${file.lastModified}`);
@@ -1159,23 +1237,29 @@ function EmailViewComponent() {
     const hasContent =
       toList.length > 0 ||
       ccList.length > 0 ||
+      bccList.length > 0 ||
       subject.length > 0 ||
       body.trim().length > 0 ||
       attachedFiles.length > 0;
 
-    if (!hasContent) return;
+    if (!hasContent) {
+      saveDraftNowRef.current = null;
+      return;
+    }
 
     const draftKey = buildDraftKey(toList, ccList, subject, body, attachmentKeys);
 
-    if (initialDraftKeyRef.current && draftKey === initialDraftKeyRef.current) return;
-
-    if (draftKey === lastDraftKeyRef.current) return;
-
-    if (draftTimerRef.current) {
-      window.clearTimeout(draftTimerRef.current);
+    if (initialDraftKeyRef.current && draftKey === initialDraftKeyRef.current) {
+      saveDraftNowRef.current = null;
+      return;
     }
 
-    draftTimerRef.current = window.setTimeout(async () => {
+    if (draftKey === lastDraftKeyRef.current) {
+      saveDraftNowRef.current = null;
+      return;
+    }
+
+    const saveDraftNow = async () => {
       try {
         setIsDraftSaving(true);
 
@@ -1193,6 +1277,7 @@ function EmailViewComponent() {
         const draft: EmailDraft = {
           to: toList,
           cc: ccList.length > 0 ? ccList : undefined,
+          bcc: bccList.length > 0 ? bccList : undefined,
           subject,
           body,
           replyToMessageId: isReplying && selectedEmail ? selectedEmail.id : undefined,
@@ -1215,11 +1300,20 @@ function EmailViewComponent() {
       } finally {
         setIsDraftSaving(false);
       }
-    }, 1500);
+    };
+
+    saveDraftNowRef.current = saveDraftNow;
+
+    if (draftTimerRef.current) {
+      window.clearTimeout(draftTimerRef.current);
+    }
+
+    draftTimerRef.current = window.setTimeout(saveDraftNow, 1500);
 
     return () => {
       if (draftTimerRef.current) {
         window.clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = null;
       }
     };
   }, [
@@ -1231,12 +1325,27 @@ function EmailViewComponent() {
     selectedEmail,
     replyTo,
     replyCc,
+    replyBcc,
     replySubject,
     replyBody,
     attachedFiles,
     isSending,
     draftId,
   ]);
+
+  // 언마운트 시에만 미저장 draft flush
+  useEffect(() => {
+    return () => {
+      if (draftTimerRef.current) {
+        window.clearTimeout(draftTimerRef.current);
+        draftTimerRef.current = null;
+      }
+      if (saveDraftNowRef.current) {
+        saveDraftNowRef.current();
+        saveDraftNowRef.current = null;
+      }
+    };
+  }, []);
 
   if (!selectedEmail && !isComposing) {
     return (
@@ -1263,6 +1372,7 @@ function EmailViewComponent() {
 
       const toList = sanitizeAddresses(replyTo);
       const ccList = sanitizeAddresses(replyCc);
+      const bccList = sanitizeAddresses(replyBcc);
       if (toList.length === 0) {
         setIsSending(false);
         return;
@@ -1272,6 +1382,7 @@ function EmailViewComponent() {
       const draft: EmailDraft = {
         to: toList,
         cc: ccList.length > 0 ? ccList : undefined,
+        bcc: bccList.length > 0 ? bccList : undefined,
         subject: replySubject,
         body: replyBody,
         replyToMessageId: isReplying ? selectedEmail?.id : undefined,
@@ -1485,6 +1596,17 @@ function EmailViewComponent() {
     if (!currentAccountId || !selectedEmail) return;
 
     const lowerName = filename.toLowerCase();
+    const isHtml =
+      mimeType === 'text/html' ||
+      lowerName.endsWith('.html') ||
+      lowerName.endsWith('.htm');
+    const isHwp =
+      mimeType === 'application/x-hwp' ||
+      mimeType === 'application/vnd.hancom.hwp' ||
+      mimeType === 'application/haansofthwp' ||
+      mimeType === 'application/vnd.hancom.hwpx' ||
+      lowerName.endsWith('.hwp') ||
+      lowerName.endsWith('.hwpx');
     const isOffice =
       mimeType === 'application/msword' ||
       mimeType === 'application/vnd.ms-excel' ||
@@ -1516,6 +1638,50 @@ function EmailViewComponent() {
       return;
     }
 
+    if (isHtml) {
+      setLoadingPdf(true);
+      try {
+        const result = await window.electronAPI.getAttachment(
+          currentAccountId,
+          selectedEmail.id,
+          attachmentId
+        );
+        const binary = atob(result.data);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+        const html = new TextDecoder('utf-8').decode(bytes);
+        setHwpPreview({ html, filename });
+      } catch (error) {
+        console.error('Failed to preview HTML attachment:', error);
+      } finally {
+        setLoadingPdf(false);
+      }
+      return;
+    }
+
+    if (isHwp) {
+      setLoadingPdf(true);
+      try {
+        const result = await window.electronAPI.previewHwpAttachment(
+          currentAccountId,
+          selectedEmail.id,
+          attachmentId,
+          filename
+        );
+        if (result?.ok && result.html) {
+          setHwpPreview({ html: result.html, filename });
+        } else {
+          window.alert('한글(HWP) 문서 미리보기에 실패했습니다.');
+        }
+      } catch (error) {
+        console.error('Failed to preview HWP attachment:', error);
+        window.alert('한글(HWP) 문서 미리보기에 실패했습니다.');
+      } finally {
+        setLoadingPdf(false);
+      }
+      return;
+    }
+
     if (isOffice) {
       setLoadingPdf(true);
       try {
@@ -1529,13 +1695,13 @@ function EmailViewComponent() {
           const previewName = result.filename || filename.replace(/\.(docx?|pptx?|xlsx?)$/i, '.pdf');
           setPdfPreview({ data: result.data, filename: previewName });
         } else if (result?.reason === 'no_converter') {
-          window.alert('Office preview requires LibreOffice to be installed.');
+          window.alert('문서 미리보기를 위해 LibreOffice가 필요합니다.');
         } else {
-          window.alert('Office preview failed.');
+          window.alert('문서 미리보기 변환에 실패했습니다.');
         }
       } catch (error) {
         console.error('Failed to preview office attachment:', error);
-        window.alert('Office preview failed.');
+        window.alert('문서 미리보기 변환에 실패했습니다.');
       } finally {
         setLoadingPdf(false);
       }
@@ -1551,7 +1717,7 @@ function EmailViewComponent() {
   // 파일 아이콘 선택
   const getFileIcon = (mimeType: string) => {
     if (mimeType.startsWith('image/')) return FileImage;
-    if (mimeType.includes('pdf') || mimeType.includes('document') || mimeType.includes('text')) return FileText;
+    if (mimeType.includes('pdf') || mimeType.includes('document') || mimeType.includes('text') || mimeType.includes('hwp') || mimeType.includes('hancom')) return FileText;
     if (mimeType.includes('zip') || mimeType.includes('rar') || mimeType.includes('archive')) return FileArchive;
     return File;
   };
@@ -1581,14 +1747,16 @@ function EmailViewComponent() {
               </span>
               <span className="text-muted-foreground">&lt;{getSenderEmailAddress(selectedEmail.from.email)}&gt;</span>
             </div>
-            <div className="text-xs text-muted-foreground mt-1">
-              받는 사람: {selectedEmail.to.map((t) => formatAddressLabel(t.name, t.email)).join(', ')}
-            </div>
+            <CollapsibleAddressList
+              label="받는 사람"
+              addresses={selectedEmail.to}
+              className="mt-1"
+            />
             {selectedEmail.cc && selectedEmail.cc.length > 0 && (
-              <div className="text-xs text-muted-foreground">
-                {'\uCC38\uC870: '}
-                {selectedEmail.cc.map((t) => formatAddressLabel(t.name, t.email)).join(', ')}
-              </div>
+              <CollapsibleAddressList
+                label="참조"
+                addresses={selectedEmail.cc}
+              />
             )}
           </div>
 
@@ -1642,6 +1810,17 @@ function EmailViewComponent() {
                   const FileIcon = getFileIcon(attachment.mimeType);
                   const lowerName = attachment.filename.toLowerCase();
                   const isPdf = attachment.mimeType === 'application/pdf' || lowerName.endsWith('.pdf');
+                  const isHtml =
+                    attachment.mimeType === 'text/html' ||
+                    lowerName.endsWith('.html') ||
+                    lowerName.endsWith('.htm');
+                  const isHwp =
+                    attachment.mimeType === 'application/x-hwp' ||
+                    attachment.mimeType === 'application/vnd.hancom.hwp' ||
+                    attachment.mimeType === 'application/haansofthwp' ||
+                    attachment.mimeType === 'application/vnd.hancom.hwpx' ||
+                    lowerName.endsWith('.hwp') ||
+                    lowerName.endsWith('.hwpx');
                   const isOffice =
                     attachment.mimeType === 'application/msword' ||
                     attachment.mimeType === 'application/vnd.ms-excel' ||
@@ -1655,7 +1834,7 @@ function EmailViewComponent() {
                     lowerName.endsWith('.xlsx') ||
                     lowerName.endsWith('.ppt') ||
                     lowerName.endsWith('.pptx');
-                  const canPreview = isPdf || isOffice;
+                  const canPreview = isPdf || isOffice || isHwp || isHtml;
                   return (
                     <ContextMenu key={attachment.id}>
                       <ContextMenuTrigger>
@@ -1911,24 +2090,33 @@ function EmailViewComponent() {
               </div>
               <div className="flex items-center gap-2">
                 <label className="w-16 text-sm text-muted-foreground shrink-0">{'\uBC1B\uB294 \uC0AC\uB78C'}</label>
-                <Input
-                  type="text"
+                <ContactInput
                   value={replyTo}
-                  onChange={(e) => setReplyTo(e.target.value)}
+                  onChange={setReplyTo}
                   placeholder={'\uC774\uBA54\uC77C \uC8FC\uC18C'}
                   className="h-8 text-sm"
                 />
               </div>
               <div className="flex items-center gap-2">
                 <label className="w-16 text-sm text-muted-foreground shrink-0">{'\uCC38\uC870'}</label>
-                <Input
-                  type="text"
+                <ContactInput
                   value={replyCc}
-                  onChange={(e) => setReplyCc(e.target.value)}
+                  onChange={setReplyCc}
                   placeholder={'\uCC38\uC870 (\uC120\uD0DD)'}
                   className="h-8 text-sm"
                 />
               </div>
+              {(isComposeOnly || isDraftEmail) && (
+                <div className="flex items-center gap-2">
+                  <label className="w-16 text-sm text-muted-foreground shrink-0">{'\uC228\uC740\uCC38\uC870'}</label>
+                  <ContactInput
+                    value={replyBcc}
+                    onChange={setReplyBcc}
+                    placeholder={'\uC228\uC740\uCC38\uC870 (\uC120\uD0DD)'}
+                    className="h-8 text-sm"
+                  />
+                </div>
+              )}
               <div className="flex items-center gap-2">
                 <label className="w-16 text-sm text-muted-foreground shrink-0">{'\uC81C\uBAA9'}</label>
                 <Input
@@ -2224,12 +2412,52 @@ function EmailViewComponent() {
         </div>
       )}
 
+      {/* HWP 미리보기 모달 */}
+      {hwpPreview && (
+        <div className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center">
+          <div className="relative w-[90vw] h-[90vh] bg-white rounded-lg overflow-hidden flex flex-col">
+            <div className="flex items-center justify-between p-3 border-b bg-background">
+              <span className="font-medium truncate">{hwpPreview.filename}</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (selectedEmail) {
+                      const attachment = selectedEmail.attachments?.find(
+                        a => a.filename === hwpPreview.filename
+                      );
+                      if (attachment) {
+                        handleDownloadAttachment(attachment.id, attachment.filename);
+                      }
+                    }
+                  }}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  다운로드
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => setHwpPreview(null)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto bg-white flex justify-center">
+              <div
+                className="hwp-preview-content text-black"
+                style={{ fontFamily: '맑은 고딕, Malgun Gothic, Batang, sans-serif', color: '#000', background: '#fff', maxWidth: '800px', width: '100%', padding: '20px' }}
+                dangerouslySetInnerHTML={{ __html: hwpPreview.html }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* PDF 로딩 인디케이터 */}
       {loadingPdf && (
         <div className="fixed inset-0 z-[9999] bg-black/50 flex items-center justify-center">
           <div className="bg-background p-4 rounded-lg flex items-center gap-3">
             <Loader2 className="h-5 w-5 animate-spin" />
-            <span>PDF 로딩 중...</span>
+            <span>문서 로딩 중...</span>
           </div>
         </div>
       )}

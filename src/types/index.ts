@@ -14,6 +14,7 @@ export interface Email {
   id: string;
   threadId: string;
   accountId: string;
+  draftId?: string;
   from: EmailAddress;
   to: EmailAddress[];
   cc?: EmailAddress[];
@@ -59,6 +60,13 @@ export interface EmailDraft {
   replyToMessageId?: string;
   threadId?: string;
   attachments?: EmailAttachment[];
+}
+
+export interface Contact {
+  name: string;
+  email: string;
+  frequency: number;
+  lastSeen: number;
 }
 
 export type EmailActionType = 'submit' | 'meeting' | 'payment' | 'reservation' | 'review' | 'approval' | 'survey' | 'other';

@@ -1,11 +1,13 @@
 import { create } from 'zustand';
 import { Email, ViewType, EmailDraft } from '../types';
+import { useContactsStore } from './contacts';
 
 const INITIAL_EMAIL_BATCH = 200;
 const EMAIL_CHUNK_SIZE = 200;
 const EMAIL_CHUNK_DELAY_MS = 80;
 let emailChunkSeq = 0;
 let emailChunkTimer: ReturnType<typeof setTimeout> | null = null;
+let fetchSeq = 0; // fetchEmails 호출 순서 추적용
 
 interface EmailsState {
   // State
@@ -28,7 +30,8 @@ interface EmailsState {
   setSelectedEmail: (email: Email | null) => void;
   setCurrentView: (view: ViewType) => void;
   setComposing: (isComposing: boolean) => void;
-  startCompose: () => void;
+  composeTo: string | null;
+  startCompose: (to?: string) => void;
   setLoading: (loading: boolean) => void;
   setError: (error: string | null) => void;
   setSearchQuery: (query: string) => void;
@@ -87,6 +90,28 @@ export const useEmailsStore = create<EmailsState>((set, get) => {
     });
   };
 
+  const extractContacts = (emails: Email[]) => {
+    const entries: { name?: string; email: string }[] = [];
+    for (const email of emails) {
+      if (email.from?.email) {
+        entries.push({ name: email.from.name, email: email.from.email });
+      }
+      if (email.to) {
+        for (const addr of email.to) {
+          if (addr.email) entries.push({ name: addr.name, email: addr.email });
+        }
+      }
+      if (email.cc) {
+        for (const addr of email.cc) {
+          if (addr.email) entries.push({ name: addr.name, email: addr.email });
+        }
+      }
+    }
+    if (entries.length > 0) {
+      useContactsStore.getState().addContacts(entries);
+    }
+  };
+
   return ({
   emails: {},
   emailsByView: {},
@@ -139,11 +164,13 @@ export const useEmailsStore = create<EmailsState>((set, get) => {
 
   setCurrentView: (view) => set({ currentView: view }),
 
+  composeTo: null,
   setComposing: (isComposing) => set({ isComposing }),
-  startCompose: () =>
+  startCompose: (to) =>
     set(() => ({
       selectedEmail: null,
       isComposing: true,
+      composeTo: to || null,
     })),
 
   setLoading: (isLoading) => set({ isLoading }),
@@ -230,7 +257,12 @@ export const useEmailsStore = create<EmailsState>((set, get) => {
 
   fetchEmails: async (accountId, view) => {
     const currentView = view || get().currentView;
+    fetchSeq += 1;
+    const mySeq = fetchSeq;
     set({ currentView, error: null });
+
+    // 이 fetch가 아직 유효한지 확인 (계정/뷰 전환 시 이전 fetch 무시)
+    const isStale = () => mySeq !== fetchSeq;
 
     const applyChunkedEmails = (emails: Email[], extraState?: Partial<EmailsState>) => {
       emailChunkSeq += 1;
@@ -298,12 +330,13 @@ export const useEmailsStore = create<EmailsState>((set, get) => {
       });
 
       const emails = mergeCachedEmails(accountId, result.messages);
+      extractContacts(emails);
+
+      if (isStale()) return; // 계정/뷰 전환됨, 이 결과 무시
 
       if (emails.length > 0) {
-        // ??? ???? ??? ?? ?? (chunked)
         applyChunkedEmails(emails, { isLoading: false });
       } else {
-        // ??? ???? ??? ?? ??
         set({ isLoading: true });
       }
 
@@ -314,10 +347,20 @@ export const useEmailsStore = create<EmailsState>((set, get) => {
       try {
         await window.electronAPI.syncEmails(accountId);
 
+        if (isStale()) {
+          set({ isSyncing: false });
+          return; // 동기화 완료했지만 이미 다른 계정/뷰로 전환됨
+        }
+
         // 3단계: 동기화 완료 후 저장소에서 재로드
         const updated = await window.electronAPI.getMessages(accountId, {
           labelIds: labelIds.length > 0 ? labelIds : undefined,
         });
+
+        if (isStale()) {
+          set({ isSyncing: false });
+          return;
+        }
 
         const updatedEmails = mergeCachedEmails(accountId, updated.messages);
 
@@ -508,6 +551,7 @@ export const useEmailsStore = create<EmailsState>((set, get) => {
       });
 
       const emails = mergeCachedEmails(accountId, result.messages);
+      extractContacts(emails);
       const currentView = get().currentView;
 
       set((state) => ({

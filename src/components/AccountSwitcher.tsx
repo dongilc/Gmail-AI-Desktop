@@ -15,11 +15,13 @@ import { cn } from '@/lib/utils';
 export function AccountSwitcher() {
   const { accounts, currentAccountId, setCurrentAccount, login, logout, isLoading } =
     useAccountsStore();
-  const { setSelectedEmail } = useEmailsStore();
+  const { setSelectedEmail, setCurrentView, setComposing } = useEmailsStore();
 
   const handleSwitchAccount = (accountId: string) => {
     if (accountId !== currentAccountId) {
       setSelectedEmail(null); // 계정 변경 시 선택된 이메일 초기화
+      setCurrentView('inbox'); // 계정 전환 시 받은편지함으로 초기화
+      setComposing(false);
     }
     setCurrentAccount(accountId);
   };

@@ -40,6 +40,10 @@ interface PreferencesState {
   setAiMailRecommendEnabled: (value: boolean) => void;
   aiConcurrentTasks: number;
   setAiConcurrentTasks: (value: number) => void;
+  autoRefreshEnabled: boolean;
+  setAutoRefreshEnabled: (value: boolean) => void;
+  autoRefreshInterval: number;
+  setAutoRefreshInterval: (value: number) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -81,10 +85,14 @@ export const usePreferencesStore = create<PreferencesState>()(
       setAiMailRecommendEnabled: (value) => set({ aiMailRecommendEnabled: value }),
       aiConcurrentTasks: 1,
       setAiConcurrentTasks: (value) => set({ aiConcurrentTasks: value }),
+      autoRefreshEnabled: true,
+      setAutoRefreshEnabled: (value) => set({ autoRefreshEnabled: value }),
+      autoRefreshInterval: 5,
+      setAutoRefreshInterval: (value) => set({ autoRefreshInterval: value }),
     }),
     {
       name: 'gmail-desktop-preferences',
-      version: 10,
+      version: 11,
       migrate: (state: any, _version) => {
         if (!state) return state;
         let next = { ...state };
@@ -123,6 +131,12 @@ export const usePreferencesStore = create<PreferencesState>()(
         }
         if (next.aiConcurrentTasks === undefined || next.aiConcurrentTasks < 1) {
           next.aiConcurrentTasks = 1;
+        }
+        if (next.autoRefreshEnabled === undefined) {
+          next.autoRefreshEnabled = true;
+        }
+        if (next.autoRefreshInterval === undefined || next.autoRefreshInterval < 1) {
+          next.autoRefreshInterval = 5;
         }
         return next;
       },

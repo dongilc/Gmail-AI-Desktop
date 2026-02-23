@@ -313,6 +313,10 @@ function GeneralTab() {
     setAiMailRecommendEnabled,
     aiMailRecommendDays,
     setAiMailRecommendDays,
+    autoRefreshEnabled,
+    setAutoRefreshEnabled,
+    autoRefreshInterval,
+    setAutoRefreshInterval,
   } = usePreferencesStore();
   const [locationInput, setLocationInput] = useState(briefingLocation);
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
@@ -473,6 +477,43 @@ function GeneralTab() {
                 <option value={7}>7일</option>
                 <option value={14}>14일</option>
                 <option value={30}>30일</option>
+              </select>
+            </div>
+          )}
+        </div>
+
+        <div className="p-3 border rounded-md space-y-3">
+          <div className="flex items-center justify-between">
+            <div>
+              <div className="text-sm font-medium">자동 새로고침</div>
+              <div className="text-xs text-muted-foreground">
+                주기적으로 이메일, 캘린더, 할 일을 자동 새로고침합니다.
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoRefreshEnabled}
+              className={cn('toggle-switch', autoRefreshEnabled && 'toggle-switch-on')}
+              onClick={() => setAutoRefreshEnabled(!autoRefreshEnabled)}
+            >
+              <span className="toggle-thumb" />
+            </button>
+          </div>
+          {autoRefreshEnabled && (
+            <div className="flex items-center justify-between">
+              <label className="text-xs text-muted-foreground">새로고침 간격</label>
+              <select
+                className="ai-select flex h-8 w-24 rounded-md border border-input bg-transparent px-2 py-1 text-xs shadow-sm"
+                value={autoRefreshInterval}
+                onChange={(e) => setAutoRefreshInterval(Number(e.target.value))}
+              >
+                <option value={1}>1분</option>
+                <option value={3}>3분</option>
+                <option value={5}>5분</option>
+                <option value={10}>10분</option>
+                <option value={15}>15분</option>
+                <option value={30}>30분</option>
               </select>
             </div>
           )}

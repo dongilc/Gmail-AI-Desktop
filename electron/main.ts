@@ -697,10 +697,10 @@ ipcMain.handle('gmail:get-messages', async (_, accountId: string, options: any) 
   const isDraftsView = !!labelIds && labelIds.includes('DRAFT');
 
   // Always fetch drafts from the server to avoid stale cache.
+  // Use drafts.list API to include draftId for proper delete after send.
   if (isDraftsView) {
     const auth = await googleAuth.getAuthClient(accountId);
-    const result = await gmailService.getMessages(auth, {
-      labelIds,
+    const result = await gmailService.getDrafts(auth, {
       maxResults: options?.maxResults || 50,
       pageToken: options?.pageToken,
       query: options?.query,
@@ -723,8 +723,8 @@ ipcMain.handle('gmail:get-messages', async (_, accountId: string, options: any) 
     };
   }
 
-  // 캐시에 없고 인박스 외 뷰면 원격에서 가져와 캐시에 합치기
-  if (filtered.length === 0 && labelIds && labelIds.length > 0 && !isInboxOnly) {
+  // 캐시에 없으면 원격에서 가져와 캐시에 합치기 (인박스 포함)
+  if (filtered.length === 0 && labelIds && labelIds.length > 0) {
     const auth = await googleAuth.getAuthClient(accountId);
     const result = await gmailService.getMessages(auth, {
       labelIds,
@@ -1051,12 +1051,16 @@ ipcMain.handle(
 
     try {
       await fs.writeFile(inputPath, buffer);
-      await execFileAsync(
+      console.log(`[Preview] Converting: ${inputPath} (${buffer.length} bytes)`);
+      const { stdout, stderr } = await execFileAsync(
         sofficePath,
         ['--headless', '--nologo', '--nofirststartwizard', '--convert-to', 'pdf', '--outdir', tmpDir, inputPath],
-        { timeout: 30000 }
+        { timeout: 60000 }
       );
+      if (stdout) console.log('[Preview] stdout:', stdout);
+      if (stderr) console.log('[Preview] stderr:', stderr);
       const files = await fs.readdir(tmpDir);
+      console.log('[Preview] Files in tmpDir:', files);
       const pdfFile = files.find((file) => file.toLowerCase().endsWith('.pdf'));
       if (!pdfFile) {
         return { ok: false, reason: 'convert_failed' };
@@ -1064,7 +1068,7 @@ ipcMain.handle(
       const pdfBuffer = await fs.readFile(path.join(tmpDir, pdfFile));
       return { ok: true, data: pdfBuffer.toString('base64'), filename: pdfFile };
     } catch (error) {
-      console.error('Office preview failed:', error);
+      console.error('[Preview] Conversion failed:', error);
       return { ok: false, reason: 'convert_failed' };
     } finally {
       try {
@@ -1072,6 +1076,51 @@ ipcMain.handle(
       } catch {
         // ignore
       }
+    }
+  }
+);
+
+// HWP/HWPX preview handler
+ipcMain.handle(
+  'gmail:preview-hwp-attachment',
+  async (_, accountId: string, messageId: string, attachmentId: string, filename: string) => {
+    const auth = await googleAuth.getAuthClient(accountId);
+    const result = await gmailService.downloadAttachment(auth, messageId, attachmentId);
+
+    const data = normalizeBase64Url(result.data);
+    const buffer = Buffer.from(data, 'base64');
+    const lowerName = (filename || '').toLowerCase();
+
+    try {
+      if (lowerName.endsWith('.hwpx')) {
+        // HWPX → HTML (@ssabrojs/hwpxjs 사용)
+        const { HwpxReader } = await import('@ssabrojs/hwpxjs');
+        const reader = new HwpxReader();
+        const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength);
+        await reader.loadFromArrayBuffer(arrayBuffer);
+
+        const html = await reader.extractHtml({
+          renderImages: true,
+          renderTables: true,
+          renderStyles: true,
+          embedImages: true,
+        });
+
+        console.log(`[Preview] HWPX → HTML: ${filename} (${html.length} chars)`);
+        return { ok: true, html };
+      } else {
+        // HWP → HTML (@ohah/hwpjs Rust 기반 파서 사용)
+        const hwpjs = await import('@ohah/hwpjs');
+        const html = hwpjs.toHtml(buffer, {
+          includePageInfo: true,
+        });
+
+        console.log(`[Preview] HWP → HTML: ${filename} (${html.length} chars)`);
+        return { ok: true, html };
+      }
+    } catch (error) {
+      console.error('[Preview] HWP conversion failed:', error);
+      return { ok: false, reason: 'convert_failed' };
     }
   }
 );

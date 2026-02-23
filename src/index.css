@@ -8,7 +8,7 @@
     --foreground: 222.2 84% 4.9%;
 
     --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted-foreground: 215 25% 20%;
 
     --popover: 0 0% 100%;
     --popover-foreground: 222.2 84% 4.9%;
@@ -768,7 +768,7 @@
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--foreground));
   word-break: keep-all;
   overflow-wrap: anywhere;
   padding: 10px 12px;
@@ -796,7 +796,7 @@
 }
 
 .ai-briefing-kv-value {
-  color: hsl(var(--muted-foreground));
+  color: hsl(var(--foreground));
   text-align: left;
   flex: 1;
   min-width: 0;

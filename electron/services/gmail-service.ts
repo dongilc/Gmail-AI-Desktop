@@ -53,19 +53,21 @@ export class GmailService {
       return `${headers}\r\n\r\n${bodyPart}\r\n${attachmentParts}\r\n--${boundary}--`;
     }
 
-    const messageParts = [
+    const headers = [
       draft.to?.length ? `To: ${draft.to.join(', ')}` : '',
       draft.cc?.length ? `Cc: ${draft.cc.join(', ')}` : '',
       draft.bcc?.length ? `Bcc: ${draft.bcc.join(', ')}` : '',
       draft.subject ? `Subject: =?UTF-8?B?${Buffer.from(draft.subject).toString('base64')}?=` : '',
       draft.replyToMessageId ? `In-Reply-To: <${draft.replyToMessageId}>` : '',
       draft.replyToMessageId ? `References: <${draft.replyToMessageId}>` : '',
+      'MIME-Version: 1.0',
       `Content-Type: ${draft.isHtml ? 'text/html' : 'text/plain'}; charset=utf-8`,
-      '',
-      draft.body || '',
+      'Content-Transfer-Encoding: base64',
     ].filter(Boolean).join('\r\n');
 
-    return messageParts;
+    const encodedBody = Buffer.from(draft.body || '').toString('base64');
+
+    return `${headers}\r\n\r\n${encodedBody}`;
   }
 
   // 첨부파일 데이터 가져오기
@@ -117,6 +119,43 @@ export class GmailService {
     };
   }
 
+  async getDrafts(
+    auth: Auth.OAuth2Client,
+    options: { maxResults?: number; pageToken?: string; query?: string }
+  ): Promise<{ messages: Email[]; nextPageToken?: string }> {
+    const gmail = this.getClient(auth);
+
+    const response = await gmail.users.drafts.list({
+      userId: 'me',
+      maxResults: options.maxResults || 50,
+      pageToken: options.pageToken,
+      q: options.query,
+    });
+
+    let messages: Email[] = [];
+    if (response.data.drafts) {
+      const batchSize = 10;
+      for (let i = 0; i < response.data.drafts.length; i += batchSize) {
+        const batch = response.data.drafts.slice(i, i + batchSize);
+        const batchResults = await Promise.all(
+          batch.map(async (draft) => {
+            const messageId = draft.message?.id;
+            if (!messageId) return null;
+            const email = await this.getMessagePreview(auth, messageId);
+            email.draftId = draft.id!;
+            return email;
+          })
+        );
+        messages = messages.concat(batchResults.filter(Boolean) as Email[]);
+      }
+    }
+
+    return {
+      messages,
+      nextPageToken: response.data.nextPageToken || undefined,
+    };
+  }
+
   // 목록용 경량 프리뷰 (인라인 이미지 로딩 안함, 첨부파일 정보는 포함)
   async getMessagePreview(auth: Auth.OAuth2Client, messageId: string): Promise<Email> {
     const gmail = this.getClient(auth);
@@ -136,14 +175,22 @@ export class GmailService {
     };
 
     const parseEmailAddress = (value: string): EmailAddress => {
-      const match = value.match(/(?:"?([^"]*)"?\s)?<?([^>]*)>?/);
-      if (match) {
-        return {
-          name: match[1]?.trim() || undefined,
-          email: match[2]?.trim() || value.trim(),
-        };
+      const trimmed = value.trim();
+      if (!trimmed) return { email: '' };
+      // <email> 형식에서 이메일 추출
+      const angleMatch = trimmed.match(/<([^>]+)>\s*$/);
+      if (angleMatch) {
+        const email = angleMatch[1].trim();
+        let name = trimmed.slice(0, angleMatch.index).trim();
+        // 따옴표 및 이스케이프된 따옴표 정리
+        if (name.startsWith('"') && name.endsWith('"')) {
+          name = name.slice(1, -1);
+        }
+        name = name.replace(/\\"/g, '').replace(/"/g, '').trim();
+        return { name: name || undefined, email };
       }
-      return { email: value.trim() };
+      // 꺽쇠 없으면 전체가 이메일
+      return { email: trimmed };
     };
 
     const parseEmailAddresses = (value: string): EmailAddress[] => {
@@ -213,14 +260,22 @@ export class GmailService {
     };
 
     const parseEmailAddress = (value: string): EmailAddress => {
-      const match = value.match(/(?:"?([^"]*)"?\s)?<?([^>]*)>?/);
-      if (match) {
-        return {
-          name: match[1]?.trim() || undefined,
-          email: match[2]?.trim() || value.trim(),
-        };
+      const trimmed = value.trim();
+      if (!trimmed) return { email: '' };
+      // <email> 형식에서 이메일 추출
+      const angleMatch = trimmed.match(/<([^>]+)>\s*$/);
+      if (angleMatch) {
+        const email = angleMatch[1].trim();
+        let name = trimmed.slice(0, angleMatch.index).trim();
+        // 따옴표 및 이스케이프된 따옴표 정리
+        if (name.startsWith('"') && name.endsWith('"')) {
+          name = name.slice(1, -1);
+        }
+        name = name.replace(/\\"/g, '').replace(/"/g, '').trim();
+        return { name: name || undefined, email };
       }
-      return { email: value.trim() };
+      // 꺽쇠 없으면 전체가 이메일
+      return { email: trimmed };
     };
 
     const parseEmailAddresses = (value: string): EmailAddress[] => {

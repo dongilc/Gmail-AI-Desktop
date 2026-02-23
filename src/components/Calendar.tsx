@@ -121,6 +121,7 @@ export function Calendar() {
   const [editTaskTitle, setEditTaskTitle] = useState("");
   const [editTaskNotes, setEditTaskNotes] = useState("");
   const [editTaskDue, setEditTaskDue] = useState("");
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
   useEffect(() => {
     if (currentAccountId) {
@@ -167,13 +168,16 @@ export function Calendar() {
   };
 
   const handleRefresh = async () => {
-    if (!currentAccountId) return;
-    await fetchEvents(currentAccountId);
-    await fetchTaskLists(currentAccountId);
-    const lists = useTasksStore.getState().taskLists;
-    lists.forEach((list) => {
-      fetchTasks(currentAccountId, list.id);
-    });
+    if (!currentAccountId || isRefreshing) return;
+    setIsRefreshing(true);
+    try {
+      await fetchEvents(currentAccountId);
+      await fetchTaskLists(currentAccountId);
+      const lists = useTasksStore.getState().taskLists;
+      await Promise.all(lists.map((list) => fetchTasks(currentAccountId, list.id)));
+    } finally {
+      setIsRefreshing(false);
+    }
   };
 
   const toLocalInputValue = (date: Date) => {
@@ -645,6 +649,16 @@ export function Calendar() {
             <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleNext}>
               <ChevronRight className="h-4 w-4" />
             </Button>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={handleRefresh}
+              disabled={isRefreshing}
+              title="새로고침"
+            >
+              <RefreshCw className={cn("h-3.5 w-3.5", isRefreshing && "animate-spin")} />
+            </Button>
           </div>
         </div>
         </div>
@@ -694,9 +708,10 @@ export function Calendar() {
                     size="icon"
                     className="h-7 w-7"
                     onClick={handleRefresh}
+                    disabled={isRefreshing}
                     title="새로고침"
                   >
-                    <RefreshCw className="h-4 w-4" />
+                    <RefreshCw className={cn("h-4 w-4", isRefreshing && "animate-spin")} />
                   </Button>
                   <Button
                     variant="ghost"

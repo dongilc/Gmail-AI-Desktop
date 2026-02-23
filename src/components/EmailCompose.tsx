@@ -5,6 +5,7 @@ import { useEmailsStore } from '@/stores/emails';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { ContactInput } from './ContactInput';
 import type { EmailDraft } from '@/types';
 
 interface EmailComposeProps {
@@ -55,20 +56,17 @@ export function EmailCompose({ onClose }: EmailComposeProps) {
           <div className="p-4 space-y-3 border-b">
             <div className="flex items-center gap-2">
               <label className="w-16 text-sm text-muted-foreground">받는 사람</label>
-              <Input
-                type="text"
+              <ContactInput
                 value={to}
-                onChange={(e) => setTo(e.target.value)}
+                onChange={setTo}
                 placeholder="이메일 주소 (쉼표로 구분)"
-                required
               />
             </div>
             <div className="flex items-center gap-2">
               <label className="w-16 text-sm text-muted-foreground">참조</label>
-              <Input
-                type="text"
+              <ContactInput
                 value={cc}
-                onChange={(e) => setCc(e.target.value)}
+                onChange={setCc}
                 placeholder="참조 (선택)"
               />
             </div>
