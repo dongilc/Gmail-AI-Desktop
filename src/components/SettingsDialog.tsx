@@ -317,7 +317,18 @@ function GeneralTab() {
     setAutoRefreshEnabled,
     autoRefreshInterval,
     setAutoRefreshInterval,
+    downloadFolder,
+    setDownloadFolder,
   } = usePreferencesStore();
+  const [downloadFolderDisplay, setDownloadFolderDisplay] = useState(downloadFolder || '');
+  useEffect(() => {
+    if (!downloadFolder) {
+      window.electronAPI.getDownloadsPath().then((p: string) => setDownloadFolderDisplay(p));
+    } else {
+      setDownloadFolderDisplay(downloadFolder);
+    }
+  }, [downloadFolder]);
+
   const [locationInput, setLocationInput] = useState(briefingLocation);
   const [locationSuggestions, setLocationSuggestions] = useState<LocationSuggestion[]>([]);
   const [locationHighlight, setLocationHighlight] = useState(0);
@@ -517,6 +528,46 @@ function GeneralTab() {
               </select>
             </div>
           )}
+        </div>
+
+        <div className="space-y-2 p-3 border rounded-md">
+          <div>
+            <div className="text-sm font-medium">첨부파일 저장 폴더</div>
+            <div className="text-xs text-muted-foreground">
+              첨부파일 다운로드 시 기본 저장 위치를 지정합니다.
+            </div>
+          </div>
+          <div className="flex items-center gap-2">
+            <Input
+              readOnly
+              value={downloadFolderDisplay}
+              className="text-xs h-8 flex-1"
+              placeholder="기본: Downloads 폴더"
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-8 whitespace-nowrap"
+              onClick={async () => {
+                const selected = await window.electronAPI.selectFolder(downloadFolder || undefined);
+                if (selected) {
+                  setDownloadFolder(selected);
+                }
+              }}
+            >
+              변경
+            </Button>
+            {downloadFolder && (
+              <Button
+                variant="ghost"
+                size="sm"
+                className="h-8 whitespace-nowrap text-muted-foreground"
+                onClick={() => setDownloadFolder('')}
+              >
+                초기화
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="flex items-center justify-between p-3 border rounded-md">

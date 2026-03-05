@@ -28,12 +28,14 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('gmail:modify-message', accountId, messageId, addLabels, removeLabels),
   trashMessage: (accountId: string, messageId: string) =>
     ipcRenderer.invoke('gmail:trash-message', accountId, messageId),
+  untrashMessage: (accountId: string, messageId: string) =>
+    ipcRenderer.invoke('gmail:untrash-message', accountId, messageId),
   searchMessages: (accountId: string, query: string, maxResults?: number) =>
     ipcRenderer.invoke('gmail:search', accountId, query, maxResults),
   getAttachment: (accountId: string, messageId: string, attachmentId: string) =>
     ipcRenderer.invoke('gmail:get-attachment', accountId, messageId, attachmentId),
-  downloadAttachment: (accountId: string, messageId: string, attachmentId: string, filename: string) =>
-    ipcRenderer.invoke('gmail:download-attachment', accountId, messageId, attachmentId, filename),
+  downloadAttachment: (accountId: string, messageId: string, attachmentId: string, filename: string, downloadFolder?: string) =>
+    ipcRenderer.invoke('gmail:download-attachment', accountId, messageId, attachmentId, filename, downloadFolder),
   previewOfficeAttachment: (accountId: string, messageId: string, attachmentId: string, filename: string) =>
     ipcRenderer.invoke('gmail:preview-office-attachment', accountId, messageId, attachmentId, filename),
   previewHwpAttachment: (accountId: string, messageId: string, attachmentId: string, filename: string) =>
@@ -91,6 +93,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   aiParseSchedule: (payload: { text: string; baseDate?: string }) =>
     ipcRenderer.invoke('ai:parse-schedule', payload),
   aiGenerate: (payload: { prompt: string }) => ipcRenderer.invoke('ai:generate', payload),
+
+  // System
+  selectFolder: (defaultPath?: string) => ipcRenderer.invoke('app:select-folder', defaultPath),
+  getDownloadsPath: () => ipcRenderer.invoke('app:get-downloads-path'),
 });
 
 // Type definitions for the exposed API
@@ -112,9 +118,10 @@ declare global {
       deleteDraft: (accountId: string, draftId: string) => Promise<void>;
       modifyMessage: (accountId: string, messageId: string, addLabels?: string[], removeLabels?: string[]) => Promise<void>;
       trashMessage: (accountId: string, messageId: string) => Promise<void>;
+      untrashMessage: (accountId: string, messageId: string) => Promise<void>;
       searchMessages: (accountId: string, query: string, maxResults?: number) => Promise<any>;
       getAttachment: (accountId: string, messageId: string, attachmentId: string) => Promise<{ data: string }>;
-      downloadAttachment: (accountId: string, messageId: string, attachmentId: string, filename: string) => Promise<{ success: boolean; path?: string }>;
+      downloadAttachment: (accountId: string, messageId: string, attachmentId: string, filename: string, downloadFolder?: string) => Promise<{ success: boolean; path?: string }>;
       previewOfficeAttachment: (
         accountId: string,
         messageId: string,
@@ -164,6 +171,10 @@ declare global {
       aiListModels: () => Promise<string[]>;
       aiParseSchedule: (payload: { text: string; baseDate?: string }) => Promise<{ title: string; location: string; startLocal: string; endLocal: string; allDay: boolean; promptTokens?: number; evalTokens?: number } | null>;
       aiGenerate: (payload: { prompt: string }) => Promise<{ text: string; promptTokens?: number; evalTokens?: number }>;
+
+      // System
+      selectFolder: (defaultPath?: string) => Promise<string | null>;
+      getDownloadsPath: () => Promise<string>;
     };
   }
 }

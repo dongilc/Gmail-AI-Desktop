@@ -1,4 +1,4 @@
-import { Plus, LogOut, Check } from 'lucide-react';
+import { Plus, LogOut, Check, RefreshCw } from 'lucide-react';
 import { useAccountsStore } from '@/stores/accounts';
 import { useEmailsStore } from '@/stores/emails';
 import { Avatar } from '@/components/ui/avatar';
@@ -16,6 +16,7 @@ export function AccountSwitcher() {
   const { accounts, currentAccountId, setCurrentAccount, login, logout, isLoading } =
     useAccountsStore();
   const { setSelectedEmail, setCurrentView, setComposing } = useEmailsStore();
+  const syncingAccountIds = useEmailsStore((s) => s.syncingAccountIds);
 
   const handleSwitchAccount = (accountId: string) => {
     if (accountId !== currentAccountId) {
@@ -50,11 +51,15 @@ export function AccountSwitcher() {
               title={account.email}
             >
               <Avatar src={account.picture} alt={account.name} size="md" />
-              {currentAccountId === account.id && (
+              {syncingAccountIds.has(account.id) ? (
+                <div className="absolute -bottom-1 -right-1 bg-orange-500 text-white rounded-full p-0.5">
+                  <RefreshCw className="h-3 w-3 animate-spin-slow" />
+                </div>
+              ) : currentAccountId === account.id ? (
                 <div className="absolute -bottom-1 -right-1 bg-primary text-primary-foreground rounded-full p-0.5">
                   <Check className="h-3 w-3" />
                 </div>
-              )}
+              ) : null}
             </button>
           </ContextMenuTrigger>
           <ContextMenuContent>

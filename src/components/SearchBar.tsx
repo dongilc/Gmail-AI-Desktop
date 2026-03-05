@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react';
-import { Search, X } from 'lucide-react';
+import { Search, X, Loader2 } from 'lucide-react';
 import { useAccountsStore } from '@/stores/accounts';
 import { useEmailsStore } from '@/stores/emails';
 import { Input } from '@/components/ui/input';
@@ -7,14 +7,20 @@ import { Button } from '@/components/ui/button';
 
 export function SearchBar() {
   const { currentAccountId } = useAccountsStore();
-  const { searchQuery, setSearchQuery, searchEmails, fetchEmails, currentView } = useEmailsStore();
+  const { searchQuery, setSearchQuery, searchEmails, fetchEmails, currentView, emails } = useEmailsStore();
   const [inputValue, setInputValue] = useState(searchQuery);
+  const [isSearching, setIsSearching] = useState(false);
 
   const handleSearch = useCallback(
-    (e: React.FormEvent) => {
+    async (e: React.FormEvent) => {
       e.preventDefault();
       if (currentAccountId && inputValue.trim()) {
-        searchEmails(currentAccountId, inputValue.trim());
+        setIsSearching(true);
+        try {
+          await searchEmails(currentAccountId, inputValue.trim());
+        } finally {
+          setIsSearching(false);
+        }
       }
     },
     [currentAccountId, inputValue, searchEmails]
@@ -27,6 +33,8 @@ export function SearchBar() {
       fetchEmails(currentAccountId, currentView);
     }
   }, [currentAccountId, currentView, fetchEmails, setSearchQuery]);
+
+  const resultCount = currentAccountId ? (emails[currentAccountId] || []).length : 0;
 
   return (
     <form onSubmit={handleSearch} className="flex items-center gap-2 flex-1" style={{ maxWidth: '42rem' }}>
@@ -50,6 +58,16 @@ export function SearchBar() {
           </Button>
         )}
       </div>
+      {isSearching ? (
+        <div className="flex items-center gap-1.5 text-xs text-muted-foreground whitespace-nowrap">
+          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          <span>검색중...</span>
+        </div>
+      ) : searchQuery ? (
+        <div className="text-xs text-muted-foreground whitespace-nowrap">
+          검색결과 <span className="font-medium text-foreground">{resultCount}</span>건
+        </div>
+      ) : null}
     </form>
   );
 }

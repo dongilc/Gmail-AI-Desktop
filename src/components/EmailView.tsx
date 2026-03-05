@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, memo, useCallback, startTransition } from 'react';
-import { Reply, ReplyAll, Forward, Star, AlertCircle, Trash2, ShieldAlert, ListPlus, Loader2, Send, X, Paperclip, Image, Download, FileText, FileImage, FileArchive, File, Eye, Printer, FileDown, Sun, Moon, Sparkles, Languages } from 'lucide-react';
+import { Reply, ReplyAll, Forward, Star, AlertCircle, Trash2, ShieldAlert, ListPlus, Loader2, Send, X, Paperclip, Image, Download, FileText, FileImage, FileArchive, File, Eye, Printer, FileDown, Sun, Moon, Sparkles, Languages, ExternalLink, Minimize2 } from 'lucide-react';
 import { useAccountsStore } from '@/stores/accounts';
 import { useEmailsStore } from '@/stores/emails';
 import { shallow } from 'zustand/shallow';
@@ -8,7 +8,7 @@ import { usePreferencesStore } from '@/stores/preferences';
 import { useAiStore } from '@/stores/ai';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
+// Textarea import removed — compose area uses contentEditable div
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Tooltip, TooltipContent, TooltipTrigger, TooltipProvider } from '@/components/ui/tooltip';
 import {
@@ -32,7 +32,7 @@ import {
 } from '@/lib/utils';
 import type { EmailDraft, EmailAttachment } from '@/types';
 
-const ADDRESS_COLLAPSE_THRESHOLD = 10;
+const ADDRESS_COLLAPSE_THRESHOLD = 2;
 
 function CollapsibleAddressList({
   label,
@@ -109,6 +109,7 @@ function EmailViewComponent() {
   );
   const { openQuickAdd } = useTasksStore();
   const { emailBodyAdjustLevel, setEmailBodyAdjustLevel } = usePreferencesStore();
+  const downloadFolder = usePreferencesStore((s) => s.downloadFolder);
   const { addTokens, incrementPending, decrementPending, addCompleted } = useAiStore();
 
   // 인라인 답장/전달 상태
@@ -119,7 +120,15 @@ function EmailViewComponent() {
   const [, setIsDraftSaving] = useState(false);
 
   // 답장 창 높이 (퍼센트)
-  const [replyHeight, setReplyHeight] = useState(60);
+  const [replyHeight, setReplyHeight] = useState(80);
+
+  // 팝업 모드
+  const [isPopupMode, setIsPopupMode] = useState(false);
+  const defaultPopupW = 1200;
+  const defaultPopupH = 800;
+  const [popupPos, setPopupPos] = useState({ x: 0, y: 0 });
+  const [popupSize, setPopupSize] = useState({ w: defaultPopupW, h: defaultPopupH });
+  const popupDragRef = useRef<{ startX: number; startY: number; origX: number; origY: number } | null>(null);
 
   // 답장/전달 폼 데이터
   const [replyTo, setReplyTo] = useState('');
@@ -133,6 +142,7 @@ function EmailViewComponent() {
   const lastDraftKeyRef = useRef<string>('');
   const initialDraftKeyRef = useRef<string>('');
   const replyQuoteRef = useRef<string>('');
+  const replyQuoteHtmlRef = useRef<string>('');
   const [isAiReplying, setIsAiReplying] = useState(false);
   const [isAiProofing, setIsAiProofing] = useState(false);
   const [proofreadTone, setProofreadTone] = useState<'formal' | 'casual'>('formal');
@@ -146,6 +156,67 @@ function EmailViewComponent() {
   const [showTranslated, setShowTranslated] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
   const translationCacheRef = useRef<Map<string, string>>(new Map());
+  const replyEditorRef = useRef<HTMLDivElement>(null);
+  const editorInternalUpdate = useRef(false); // 내부 입력 중 외부 sync 방지
+
+  // contentEditable에서 인용문 이전의 사용자 텍스트만 추출
+  // Enter 입력 시 브라우저가 data-user-content 밖에 새 div를 생성하므로
+  // childNodes를 순회하며 quote 이전 텍스트를 수집
+  const getEditorUserText = useCallback((el: HTMLElement): string => {
+    // 방법1: childNodes를 순회하며 quote div 이전 텍스트만 수집
+    const parts: string[] = [];
+    let foundQuote = false;
+    for (const node of Array.from(el.childNodes)) {
+      if (node instanceof HTMLElement) {
+        if (node.hasAttribute('data-quote-content') ||
+            node.getAttribute('contenteditable') === 'false' ||
+            node.querySelector?.('[data-quote-content]')) {
+          foundQuote = true;
+          break;
+        }
+        parts.push(node.innerText || '');
+      } else if (node.nodeType === Node.TEXT_NODE) {
+        parts.push(node.textContent || '');
+      }
+    }
+
+    if (foundQuote) {
+      return parts.join('\n').replace(/\n{3,}/g, '\n\n').trimEnd();
+    }
+
+    // 방법2: DOM에서 quote를 못 찾으면 텍스트 패턴으로 잘라냄
+    const fullText = el.innerText || '';
+    const quoteMarkers = ['\n원본 메시지\n', '\n---------- 전달된 메시지 ----------\n'];
+    for (const marker of quoteMarkers) {
+      const idx = fullText.indexOf(marker);
+      if (idx >= 0) {
+        return fullText.substring(0, idx).replace(/\n{3,}/g, '\n\n').trimEnd();
+      }
+    }
+
+    return fullText.replace(/\n{3,}/g, '\n\n').trimEnd();
+  }, []);
+
+  // 에디터 사용자 영역의 HTML을 반환 (인라인 이미지 포함)
+  const getEditorUserHtml = useCallback((el: HTMLElement): string => {
+    const parts: string[] = [];
+    for (const node of Array.from(el.childNodes)) {
+      if (node instanceof HTMLElement) {
+        if (node.hasAttribute('data-quote-content') ||
+            node.getAttribute('contenteditable') === 'false' ||
+            node.querySelector?.('[data-quote-content]')) {
+          break;
+        }
+        parts.push(node.outerHTML);
+      } else if (node.nodeType === Node.TEXT_NODE) {
+        const t = node.textContent || '';
+        parts.push(t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+      }
+    }
+    return parts.join('');
+  }, []);
+
+  const [hasTextSelection, setHasTextSelection] = useState(false);
   const bodyCacheRef = useRef<
     Map<
       string,
@@ -182,6 +253,8 @@ function EmailViewComponent() {
   const [inlineImages, setInlineImages] = useState<Record<string, string>>({});
   const [loadingImages, setLoadingImages] = useState(false);
   const loadingEmailIdRef = useRef<string | null>(null);
+  const contextImgSrcRef = useRef<string | null>(null);
+  const [contextHasImage, setContextHasImage] = useState(false);
   const loadedImagesRef = useRef<Record<string, Record<string, string>>>({});
   const inlineImageIdleRef = useRef<number | null>(null);
   const cancelInlineImageIdle = useCallback(() => {
@@ -226,6 +299,7 @@ function EmailViewComponent() {
   // PDF 미리보기 상태
   const [pdfPreview, setPdfPreview] = useState<{ data: string; filename: string } | null>(null);
   const [hwpPreview, setHwpPreview] = useState<{ html: string; filename: string } | null>(null);
+  const [imagePreview, setImagePreview] = useState<{ dataUrl: string; filename: string } | null>(null);
   const [loadingPdf, setLoadingPdf] = useState(false);
 
   // 본문이 아직 로딩 중인지 확인
@@ -241,6 +315,7 @@ function EmailViewComponent() {
     // 이메일이 바뀌면 답장/전달 상태 초기화
     setIsReplying(false);
     setIsForwarding(false);
+    setIsPopupMode(false);
     setReplyTo('');
     setReplyCc('');
     setReplyBcc('');
@@ -270,6 +345,44 @@ function EmailViewComponent() {
       setReplyBcc(bccValue);
       setReplySubject(subjectValue);
       setReplyBody(bodyValue);
+
+      // 드래프트 첨부파일 복원
+      const emailId = selectedEmail.id;
+      const draftAttachments = selectedEmail.attachments;
+      if (draftAttachments && draftAttachments.length > 0 && currentAccountId) {
+        (async () => {
+          try {
+            const files: File[] = [];
+            for (const att of draftAttachments) {
+              const result = await window.electronAPI.getAttachment(currentAccountId, emailId, att.id);
+              const byteChars = atob(result.data);
+              const byteArray = new Uint8Array(byteChars.length);
+              for (let j = 0; j < byteChars.length; j++) {
+                byteArray[j] = byteChars.charCodeAt(j);
+              }
+              const blob = new Blob([byteArray], { type: att.mimeType });
+              // Blob에 File 속성 부여 (File 생성자 타입 이슈 우회)
+              const file = Object.assign(blob, {
+                name: att.filename,
+                lastModified: Date.now(),
+              }) as unknown as File;
+              files.push(file);
+            }
+            setAttachedFiles(files);
+            const attachmentKeys = files.map((f) => `${f.name}:${f.size}:${f.lastModified}`);
+            initialDraftKeyRef.current = buildDraftKey(
+              sanitizeAddresses(toValue),
+              sanitizeAddresses(ccValue),
+              subjectValue.trim(),
+              bodyValue || selectedEmail.body || '',
+              attachmentKeys
+            );
+          } catch (e) {
+            console.error('[Draft] Failed to restore attachments:', e);
+          }
+        })();
+      }
+
       initialDraftKeyRef.current = buildDraftKey(
         sanitizeAddresses(toValue),
         sanitizeAddresses(ccValue),
@@ -291,14 +404,39 @@ function EmailViewComponent() {
     const subjectValue = selectedEmail.subject || '';
     const bodyValue = selectedEmail.body;
     setReplyBody(bodyValue);
+    const attachmentKeys = attachedFiles.map((f) => `${f.name}:${f.size}:${f.lastModified}`);
     initialDraftKeyRef.current = buildDraftKey(
       sanitizeAddresses(toValue),
       sanitizeAddresses(ccValue),
       subjectValue.trim(),
       bodyValue,
-      []
+      attachmentKeys
     );
   }, [draftBodyLoaded]);
+
+  // contentEditable 에디터 동기화: replyBody 또는 인용문 변경 시 DOM 갱신
+  const showReplyQuote = (isReplying || isForwarding) && !!replyQuoteHtmlRef.current;
+  useEffect(() => {
+    const el = replyEditorRef.current;
+    if (!el) return;
+    // 내부 입력(onInput)에 의한 replyBody 변경이면 DOM을 다시 쓰지 않음
+    if (editorInternalUpdate.current) {
+      editorInternalUpdate.current = false;
+      return;
+    }
+    const escaped = replyBody
+      ? replyBody.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+      : '<br>';
+    const quoteHtml = showReplyQuote
+      ? `<div contenteditable="false" data-quote-content style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;opacity:0.8;user-select:none;">
+          <div style="font-size:12px;color:var(--muted-foreground);margin-bottom:4px;">
+            ${isForwarding ? '---------- 전달된 메시지 ----------' : '원본 메시지'}
+          </div>
+          <div class="email-content">${replyQuoteHtmlRef.current}</div>
+        </div>`
+      : '';
+    el.innerHTML = `<div data-user-content>${escaped}</div>${quoteHtml}`;
+  }, [replyBody, showReplyQuote, isForwarding, isReplying]);
 
   useEffect(() => {
     if (!isComposeOnly) return;
@@ -354,7 +492,7 @@ function EmailViewComponent() {
     }
 
     const imageAttachments =
-      selectedEmail.attachments?.filter((att) => att.mimeType.startsWith('image/')) || [];
+      selectedEmail.attachments?.filter((att) => att.mimeType.startsWith('image/') && selectedEmail.inlineImageIds?.includes(att.id)) || [];
 
     if (imageAttachments.length === 0) {
       setInlineImages({});
@@ -633,22 +771,23 @@ function EmailViewComponent() {
     const nextTo = getSenderEmailAddress(selectedEmail.from.email);
     const nextCc = '';
     const nextSubject = `Re: ${selectedEmail.subject}`;
-    const nextBody = `\n\n${new Date(selectedEmail.date).toLocaleString()} ${getSenderDisplayName(
+    const quoteText = `\n\n${new Date(selectedEmail.date).toLocaleString()} ${getSenderDisplayName(
       selectedEmail.from.name,
       selectedEmail.from.email
     )} \uC791\uC131:\n> ${(selectedEmail.body || selectedEmail.snippet).split('\n').join('\n> ')}`;
     setReplyTo(nextTo);
     setReplyCc(nextCc);
     setReplySubject(nextSubject);
-    setReplyBody(nextBody);
+    setReplyBody('');
     setIsReplying(true);
     setIsForwarding(false);
-    replyQuoteRef.current = nextBody;
+    replyQuoteRef.current = quoteText;
+    replyQuoteHtmlRef.current = selectedEmail.bodyHtml || '';
     initialDraftKeyRef.current = buildDraftKey(
       sanitizeAddresses(nextTo),
       sanitizeAddresses(nextCc),
       nextSubject.trim(),
-      nextBody,
+      '',
       []
     );
   };
@@ -679,7 +818,7 @@ function EmailViewComponent() {
     const nextCc = Array.from(ccSet).join(', ');
     const subject = selectedEmail.subject || '';
     const nextSubject = subject.trim().toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
-    const nextBody = `\n\n${new Date(selectedEmail.date).toLocaleString()} ${getSenderDisplayName(
+    const quoteText = `\n\n${new Date(selectedEmail.date).toLocaleString()} ${getSenderDisplayName(
       selectedEmail.from.name,
       selectedEmail.from.email
     )} \uC791\uC131:\n> ${(selectedEmail.body || selectedEmail.snippet).split('\n').join('\n> ')}`;
@@ -687,15 +826,16 @@ function EmailViewComponent() {
     setReplyTo(nextTo);
     setReplyCc(nextCc);
     setReplySubject(nextSubject);
-    setReplyBody(nextBody);
+    setReplyBody('');
     setIsReplying(true);
     setIsForwarding(false);
-    replyQuoteRef.current = nextBody;
+    replyQuoteRef.current = quoteText;
+    replyQuoteHtmlRef.current = selectedEmail.bodyHtml || '';
     initialDraftKeyRef.current = buildDraftKey(
       sanitizeAddresses(nextTo),
       sanitizeAddresses(nextCc),
       nextSubject.trim(),
-      nextBody,
+      '',
       []
     );
   };
@@ -705,26 +845,64 @@ function EmailViewComponent() {
     const nextTo = '';
     const nextCc = '';
     const nextSubject = `Fwd: ${selectedEmail.subject}`;
-    const nextBody = `\n\n---------- \uC804\uB2EC\uB41C \uBA54\uC2DC\uC9C0 ----------\n\uBCF4\uB0B8 \uC0AC\uB78C: ${getSenderDisplayName(
+    const quoteText = `\n\n---------- 전달된 메시지 ----------\n보낸 사람: ${getSenderDisplayName(
       selectedEmail.from.name,
       selectedEmail.from.email
-    )}\n\uB0A0\uC9DC: ${new Date(selectedEmail.date).toLocaleString()}\n\uC81C\uBAA9: ${
+    )}\n날짜: ${new Date(selectedEmail.date).toLocaleString()}\n제목: ${
       selectedEmail.subject
-    }\n\uBC1B\uB294 \uC0AC\uB78C: ${selectedEmail.to
+    }\n받는 사람: ${selectedEmail.to
       .map((t) => formatAddressLabel(t.name, t.email))
       .join(', ')}\n\n${selectedEmail.body || selectedEmail.snippet}`;
     setReplyTo(nextTo);
     setReplyCc(nextCc);
     setReplySubject(nextSubject);
-    setReplyBody(nextBody);
+    setReplyBody('');
     setIsReplying(false);
     setIsForwarding(true);
-    replyQuoteRef.current = nextBody;
+    replyQuoteRef.current = quoteText;
+    replyQuoteHtmlRef.current = selectedEmail.bodyHtml || '';
+
+    // 원본 메일 첨부파일 자동 첨부
+    const fwdAttachments = selectedEmail.attachments;
+    if (fwdAttachments && fwdAttachments.length > 0 && currentAccountId) {
+      const emailId = selectedEmail.id;
+      (async () => {
+        try {
+          const files: File[] = [];
+          for (const att of fwdAttachments) {
+            const result = await window.electronAPI.getAttachment(currentAccountId, emailId, att.id);
+            const byteChars = atob(result.data);
+            const byteArray = new Uint8Array(byteChars.length);
+            for (let j = 0; j < byteChars.length; j++) {
+              byteArray[j] = byteChars.charCodeAt(j);
+            }
+            const blob = new Blob([byteArray], { type: att.mimeType });
+            const file = Object.assign(blob, {
+              name: att.filename,
+              lastModified: Date.now(),
+            }) as unknown as File;
+            files.push(file);
+          }
+          setAttachedFiles(files);
+          const attachmentKeys = files.map((f) => `${f.name}:${f.size}:${f.lastModified}`);
+          initialDraftKeyRef.current = buildDraftKey(
+            sanitizeAddresses(nextTo),
+            sanitizeAddresses(nextCc),
+            nextSubject.trim(),
+            '',
+            attachmentKeys
+          );
+        } catch (e) {
+          console.error('[Forward] Failed to attach original files:', e);
+        }
+      })();
+    }
+
     initialDraftKeyRef.current = buildDraftKey(
       sanitizeAddresses(nextTo),
       sanitizeAddresses(nextCc),
       nextSubject.trim(),
-      nextBody,
+      '',
       []
     );
   };
@@ -742,6 +920,7 @@ function EmailViewComponent() {
       lastDraftKeyRef.current = '';
       initialDraftKeyRef.current = '';
       replyQuoteRef.current = '';
+      replyQuoteHtmlRef.current = '';
       setIsAiReplying(false);
       setIsAiProofing(false);
       setProofreadBefore(null);
@@ -762,6 +941,7 @@ function EmailViewComponent() {
       setReplyBody(bodyValue);
       setAttachedFiles([]);
       replyQuoteRef.current = '';
+      replyQuoteHtmlRef.current = '';
       initialDraftKeyRef.current = buildDraftKey(
         sanitizeAddresses(toValue),
         sanitizeAddresses(ccValue),
@@ -785,7 +965,9 @@ function EmailViewComponent() {
     setReplyBody('');
     setAttachedFiles([]);
     setIsAiReplying(false);
+    setIsPopupMode(false);
     replyQuoteRef.current = '';
+    replyQuoteHtmlRef.current = '';
     initialDraftKeyRef.current = '';
     setProofreadBefore(null);
     setProofreadAfter(null);
@@ -994,19 +1176,54 @@ function EmailViewComponent() {
     return null;
   };
 
+  const handleTextSelect = useCallback(() => {
+    const sel = window.getSelection();
+    setHasTextSelection(sel ? !sel.isCollapsed : false);
+  }, []);
+
   const handleProofreadDraft = async () => {
     if (!window.electronAPI?.aiGenerate) return;
-    const text = replyBody.trim();
-    if (!text && !(proofreadIncludeSubject && replySubject.trim())) return;
+
+    // Check for text selection in contentEditable
+    const sel = window.getSelection();
+    const selectedText = sel && !sel.isCollapsed ? sel.toString().trim() : '';
+    // Map selection to replyBody offsets
+    let selStart = 0;
+    let selEnd = 0;
+    const hasSelection = selectedText.length > 0;
+    if (hasSelection) {
+      selStart = replyBody.indexOf(selectedText);
+      if (selStart < 0) selStart = 0;
+      selEnd = selStart + selectedText.length;
+    }
+
+    let textToProofread: string;
+    let isPartialProofread = false;
+
+    if (hasSelection) {
+      // Proofread only selected text
+      textToProofread = selectedText;
+      isPartialProofread = true;
+    } else if (isReplying || isForwarding) {
+      // In reply/forward mode without selection: proofread only user text (exclude quote)
+      // The quote is stored in replyQuoteRef, and replyBody contains only the user's text
+      textToProofread = replyBody.trim();
+    } else {
+      // Compose / draft mode: proofread entire body
+      textToProofread = replyBody.trim();
+    }
+
+    if (!textToProofread && !(proofreadIncludeSubject && replySubject.trim())) return;
     setIsAiProofing(true);
     incrementPending();
     try {
-      const before = { subject: replySubject, body: replyBody };
+      const beforeBody = isPartialProofread ? replyBody.slice(selStart, selEnd) : replyBody;
+      const before = { subject: replySubject, body: beforeBody };
       const prompt = buildProofreadPrompt(
-        text,
-        replySubject.trim(),
+        textToProofread,
+        isPartialProofread ? '' : replySubject.trim(),
         proofreadTone,
-        proofreadIncludeSubject,
+        isPartialProofread ? false : proofreadIncludeSubject,
         proofreadLanguage
       );
       const result = await window.electronAPI.aiGenerate({ prompt });
@@ -1014,22 +1231,35 @@ function EmailViewComponent() {
       if (raw) {
         let nextSubject = replySubject;
         let nextBody = raw;
-        if (proofreadIncludeSubject) {
-          const parsed = parseProofreadResult(raw);
-          if (parsed) {
-            nextSubject = parsed.subject || replySubject;
-            nextBody = stripProofreadPreamble(parsed.body || replyBody);
+
+        if (isPartialProofread) {
+          // For partial proofread, never include subject handling
+          nextBody = stripProofreadPreamble(stripBodyLabel(raw));
+          // Replace only the selected portion in the full body
+          const fullBody = replyBody.slice(0, selStart) + nextBody + replyBody.slice(selEnd);
+          setReplySubject(nextSubject);
+          setReplyBody(fullBody);
+          setProofreadBefore(before);
+          setProofreadAfter({ subject: nextSubject, body: nextBody });
+          setShowProofreadCompare(true);
+        } else {
+          if (proofreadIncludeSubject) {
+            const parsed = parseProofreadResult(raw);
+            if (parsed) {
+              nextSubject = parsed.subject || replySubject;
+              nextBody = stripProofreadPreamble(parsed.body || replyBody);
+            } else {
+              nextBody = stripProofreadPreamble(stripBodyLabel(raw));
+            }
           } else {
             nextBody = stripProofreadPreamble(stripBodyLabel(raw));
           }
-        } else {
-          nextBody = stripProofreadPreamble(stripBodyLabel(raw));
+          setReplySubject(nextSubject);
+          setReplyBody(nextBody);
+          setProofreadBefore(before);
+          setProofreadAfter({ subject: nextSubject, body: nextBody });
+          setShowProofreadCompare(true);
         }
-        setReplySubject(nextSubject);
-        setReplyBody(nextBody);
-        setProofreadBefore(before);
-        setProofreadAfter({ subject: nextSubject, body: nextBody });
-        setShowProofreadCompare(true);
       }
       addTokens(result?.promptTokens || 0, result?.evalTokens || 0);
     } catch (error) {
@@ -1347,6 +1577,49 @@ function EmailViewComponent() {
     };
   }, []);
 
+  // 팝업 드래그 핸들러 (early return 위에 배치 — Hook 순서 보장)
+  const handlePopupDragStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    popupDragRef.current = { startX: e.clientX, startY: e.clientY, origX: popupPos.x, origY: popupPos.y };
+    const onMove = (ev: MouseEvent) => {
+      if (!popupDragRef.current) return;
+      const dx = ev.clientX - popupDragRef.current.startX;
+      const dy = ev.clientY - popupDragRef.current.startY;
+      setPopupPos({
+        x: Math.max(0, popupDragRef.current.origX + dx),
+        y: Math.max(0, popupDragRef.current.origY + dy),
+      });
+    };
+    const onUp = () => {
+      popupDragRef.current = null;
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [popupPos]);
+
+  const handlePopupResizeStart = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const startX = e.clientX;
+    const startY = e.clientY;
+    const origW = popupSize.w;
+    const origH = popupSize.h;
+    const onMove = (ev: MouseEvent) => {
+      setPopupSize({
+        w: Math.max(400, origW + (ev.clientX - startX)),
+        h: Math.max(300, origH + (ev.clientY - startY)),
+      });
+    };
+    const onUp = () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    };
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  }, [popupSize]);
+
   if (!selectedEmail && !isComposing) {
     return (
       <div className="flex-1 flex items-center justify-center text-muted-foreground">
@@ -1357,6 +1630,15 @@ function EmailViewComponent() {
 
   const handleSendReply = async () => {
     if (!currentAccountId || !replyTo.trim()) return;
+
+    // 전송 직전 contentEditable DOM에서 최신 텍스트를 읽어 동기화
+    // React state(replyBody)는 비동기 업데이트이므로 빠른 타이핑 후 바로 전송 시 stale할 수 있음
+    const editorEl = replyEditorRef.current;
+    let latestBody = replyBody;
+    if (editorEl) {
+      latestBody = getEditorUserText(editorEl);
+      setReplyBody(latestBody);
+    }
 
     setIsSending(true);
 
@@ -1379,12 +1661,47 @@ function EmailViewComponent() {
       }
 
       const shouldThread = isReplying || isDraftEmail;
+
+      // 에디터에 인라인 이미지가 있는지 확인
+      const hasInlineImages = editorEl ? !!editorEl.querySelector('div[data-user-content] img[src^="data:"], img[src^="data:"]') : false;
+
+      // 사용자 입력 HTML (인라인 이미지 포함 시 사용)
+      let userHtml = '';
+      if (hasInlineImages && editorEl) {
+        userHtml = getEditorUserHtml(editorEl);
+      }
+
+      // 원본 메일에 HTML 본문(인라인 이미지 포함)이 있으면 HTML로 전송
+      let finalBody = latestBody;
+      let isHtml = false;
+      if (replyQuoteHtmlRef.current && selectedEmail && (isReplying || isForwarding)) {
+        // 사용자가 입력한 HTML (이미지가 있으면 그대로, 없으면 텍스트→HTML 변환)
+        const userContent = hasInlineImages
+          ? userHtml
+          : escapeHtml(latestBody.trim()).replace(/\n/g, '<br>');
+        const dateStr = escapeHtml(new Date(selectedEmail.date).toLocaleString());
+        const sender = escapeHtml(getSenderDisplayName(selectedEmail.from.name, selectedEmail.from.email));
+
+        if (isReplying) {
+          finalBody = `<div>${userContent}</div><br><div>${dateStr} ${sender} 작성:</div><blockquote style="margin:0 0 0 0.8ex;border-left:1px solid #ccc;padding-left:1ex;">${replyQuoteHtmlRef.current}</blockquote>`;
+        } else if (isForwarding) {
+          const toLine = escapeHtml(selectedEmail.to.map((t) => formatAddressLabel(t.name, t.email)).join(', '));
+          finalBody = `<div>${userContent}</div><br><div>---------- 전달된 메시지 ----------</div><div>보낸 사람: ${sender}</div><div>날짜: ${dateStr}</div><div>제목: ${escapeHtml(selectedEmail.subject)}</div><div>받는 사람: ${toLine}</div><br>${replyQuoteHtmlRef.current}`;
+        }
+        isHtml = true;
+      } else if (hasInlineImages) {
+        // 새 메일 작성 또는 인용문 없는 경우에도 인라인 이미지가 있으면 HTML로 전송
+        finalBody = userHtml;
+        isHtml = true;
+      }
+
       const draft: EmailDraft = {
         to: toList,
         cc: ccList.length > 0 ? ccList : undefined,
         bcc: bccList.length > 0 ? bccList : undefined,
         subject: replySubject,
-        body: replyBody,
+        body: finalBody,
+        isHtml: isHtml || undefined,
         replyToMessageId: isReplying ? selectedEmail?.id : undefined,
         threadId: shouldThread ? selectedEmail?.threadId : undefined,
         attachments: attachments.length > 0 ? attachments : undefined,
@@ -1415,9 +1732,10 @@ function EmailViewComponent() {
 
   const showReplyForm = isReplying || isForwarding || isDraftEmail || isComposing;
   const replyPanelHeight = isDraftEmail || isComposing ? 100 : replyHeight;
+
   const showAiDraftButton = isReplying || isForwarding;
   const showDeleteDraftButton = isDraftEmail;
-  const showProofreadOptions = isComposeOnly || isDraftEmail;
+  const showProofreadOptions = isComposeOnly || isDraftEmail || isReplying || isForwarding;
   const canProofread = Boolean(replyBody.trim() || (proofreadIncludeSubject && replySubject.trim()));
   const cancelLabel = isDraftEmail || isComposeOnly ? '\uC791\uC131 \uCDE8\uC18C' : '\uCDE8\uC18C';
   const detectedProofreadLanguage =
@@ -1569,7 +1887,8 @@ function EmailViewComponent() {
         currentAccountId,
         selectedEmail.id,
         attachmentId,
-        filename
+        filename,
+        downloadFolder || undefined
       );
     } catch (error) {
       console.error('Failed to download attachment:', error);
@@ -1579,7 +1898,7 @@ function EmailViewComponent() {
   const handleDownloadAllAttachments = async () => {
     if (!currentAccountId || !selectedEmail || isDownloadingAll) return;
     const attachments =
-      selectedEmail.attachments?.filter((att) => !att.mimeType.startsWith('image/')) || [];
+      selectedEmail.attachments?.filter((att) => !(att.mimeType.startsWith('image/') && selectedEmail.inlineImageIds?.includes(att.id))) || [];
     if (attachments.length === 0) return;
     setIsDownloadingAll(true);
     try {
@@ -1620,6 +1939,24 @@ function EmailViewComponent() {
       lowerName.endsWith('.xlsx') ||
       lowerName.endsWith('.ppt') ||
       lowerName.endsWith('.pptx');
+
+    if (mimeType.startsWith('image/') || /\.(png|jpe?g|gif|bmp|webp|svg|ico)$/i.test(lowerName)) {
+      setLoadingPdf(true);
+      try {
+        const result = await window.electronAPI.getAttachment(
+          currentAccountId,
+          selectedEmail.id,
+          attachmentId
+        );
+        const standardBase64 = result.data.replace(/-/g, '+').replace(/_/g, '/');
+        setImagePreview({ dataUrl: `data:${mimeType};base64,${standardBase64}`, filename });
+      } catch (error) {
+        console.error('Failed to load image:', error);
+      } finally {
+        setLoadingPdf(false);
+      }
+      return;
+    }
 
     if (mimeType === 'application/pdf' || lowerName.endsWith('.pdf')) {
       setLoadingPdf(true);
@@ -1783,13 +2120,13 @@ function EmailViewComponent() {
           {actionButtons}
         </div>
 
-        {selectedEmail.attachments && selectedEmail.attachments.filter(att => !att.mimeType.startsWith('image/')).length > 0 && (
+        {selectedEmail.attachments && selectedEmail.attachments.filter(att => !(att.mimeType.startsWith('image/') && selectedEmail.inlineImageIds?.includes(att.id))).length > 0 && (
           <div className="mt-3 pt-3 border-t">
             <div className="flex items-center justify-between gap-2 mb-2">
               <div className="flex items-center gap-2">
                 <Paperclip className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm font-medium">
-                  첨부파일 ({selectedEmail.attachments.filter(att => !att.mimeType.startsWith('image/')).length})
+                  첨부파일 ({selectedEmail.attachments.filter(att => !(att.mimeType.startsWith('image/') && selectedEmail.inlineImageIds?.includes(att.id))).length})
                 </span>
               </div>
               <Button
@@ -1805,7 +2142,7 @@ function EmailViewComponent() {
             </div>
             <div className="flex flex-wrap gap-2">
               {selectedEmail.attachments
-                .filter(att => !att.mimeType.startsWith('image/'))
+                .filter(att => !(att.mimeType.startsWith('image/') && selectedEmail.inlineImageIds?.includes(att.id)))
                 .map((attachment) => {
                   const FileIcon = getFileIcon(attachment.mimeType);
                   const lowerName = attachment.filename.toLowerCase();
@@ -1821,6 +2158,9 @@ function EmailViewComponent() {
                     attachment.mimeType === 'application/vnd.hancom.hwpx' ||
                     lowerName.endsWith('.hwp') ||
                     lowerName.endsWith('.hwpx');
+                  const isImage =
+                    attachment.mimeType.startsWith('image/') ||
+                    /\.(png|jpe?g|gif|bmp|webp|svg|ico)$/i.test(lowerName);
                   const isOffice =
                     attachment.mimeType === 'application/msword' ||
                     attachment.mimeType === 'application/vnd.ms-excel' ||
@@ -1834,23 +2174,23 @@ function EmailViewComponent() {
                     lowerName.endsWith('.xlsx') ||
                     lowerName.endsWith('.ppt') ||
                     lowerName.endsWith('.pptx');
-                  const canPreview = isPdf || isOffice || isHwp || isHtml;
+                  const canPreview = isPdf || isOffice || isHwp || isHtml || isImage;
                   return (
                     <ContextMenu key={attachment.id}>
                       <ContextMenuTrigger>
                         <button
                           onClick={() => handleAttachmentClick(attachment.id, attachment.filename, attachment.mimeType)}
                           className={cn(
-                            "flex items-center gap-2 px-3 py-1.5 rounded-full border bg-muted/30 hover:bg-muted transition-colors text-sm",
+                            "flex items-center gap-1.5 px-2 py-1 rounded-full border bg-muted/30 hover:bg-muted transition-colors text-[0.52rem] leading-tight",
                             canPreview && "cursor-pointer",
                             !canPreview && "cursor-default"
                           )}
                           title={canPreview ? `${attachment.filename} (클릭하여 미리보기)` : `${attachment.filename} (우클릭하여 다운로드)`}
                         >
-                          <FileIcon className="h-4 w-4 text-muted-foreground" />
+                          <FileIcon className="h-3 w-3 text-muted-foreground" />
                           <span className="max-w-[150px] truncate">{attachment.filename}</span>
-                          <span className="text-xs text-muted-foreground">({formatFileSize(attachment.size)})</span>
-                          {canPreview && <Eye className="h-3 w-3 text-blue-500" />}
+                          <span className="text-muted-foreground">({formatFileSize(attachment.size)})</span>
+                          {canPreview && <Eye className="h-2.5 w-2.5 text-blue-500" />}
                         </button>
                       </ContextMenuTrigger>
                       <ContextMenuContent>
@@ -1881,16 +2221,25 @@ function EmailViewComponent() {
 
       )}
 
-      {/* Content area - split when replying */}
+      {/* Content area - split when replying (full height in popup mode) */}
       {!isDraftEmail && !isComposing && selectedEmail && (
         <div
-          className={cn('flex flex-col min-h-0 overflow-hidden', !showReplyForm && 'flex-1')}
-          style={showReplyForm ? { maxHeight: `${100 - replyPanelHeight}%` } : { height: '100%' }}
+          className={cn('flex flex-col min-h-0 overflow-hidden', (!showReplyForm || isPopupMode) && 'flex-1')}
+          style={showReplyForm && !isPopupMode ? { maxHeight: `${100 - replyPanelHeight}%` } : { height: '100%' }}
         >
         {/* Email Body */}
         <div className="overflow-hidden flex flex-col flex-1">
           <ContextMenu>
-            <ContextMenuTrigger asChild>
+            <ContextMenuTrigger asChild onContextMenu={(e: React.MouseEvent) => {
+              const target = e.target as HTMLElement;
+              if (target.tagName === 'IMG' && (target as HTMLImageElement).src) {
+                contextImgSrcRef.current = (target as HTMLImageElement).src;
+                setContextHasImage(true);
+              } else {
+                contextImgSrcRef.current = null;
+                setContextHasImage(false);
+              }
+            }}>
               <ScrollArea className="flex-1">
                 <div className="p-4">
                   {isBodyLoading ? (
@@ -1921,7 +2270,7 @@ function EmailViewComponent() {
                   )}
 
               {/* 인라인 이미지 표시 */}
-                  {!showTranslated && selectedEmail.attachments && selectedEmail.attachments.some(att => att.mimeType.startsWith('image/')) && (
+                  {!showTranslated && selectedEmail.attachments && selectedEmail.attachments.some(att => att.mimeType.startsWith('image/') && selectedEmail.inlineImageIds?.includes(att.id)) && (
                 <div className="mt-4 space-y-3">
                   {loadingImages && (
                     <div className="flex items-center gap-2 text-muted-foreground">
@@ -1930,7 +2279,7 @@ function EmailViewComponent() {
                     </div>
                   )}
                   {selectedEmail.attachments
-                    .filter(att => att.mimeType.startsWith('image/'))
+                    .filter(att => att.mimeType.startsWith('image/') && selectedEmail.inlineImageIds?.includes(att.id))
                     .map((att) => (
                       inlineImages[att.id] && (
                         <ContextMenu key={att.id}>
@@ -2025,6 +2374,35 @@ function EmailViewComponent() {
                 <File className="mr-2 h-4 w-4" />
                 선택 텍스트 복사
               </ContextMenuItem>
+              {contextHasImage && (
+                <ContextMenuItem onClick={async () => {
+                  const src = contextImgSrcRef.current;
+                  if (!src) return;
+                  try {
+                    const response = await fetch(src);
+                    const blob = await response.blob();
+                    const pngBlob = blob.type === 'image/png' ? blob : await new Promise<Blob>((resolve) => {
+                      const img = document.createElement('img');
+                      img.onload = () => {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = img.naturalWidth;
+                        canvas.height = img.naturalHeight;
+                        canvas.getContext('2d')!.drawImage(img, 0, 0);
+                        canvas.toBlob((b) => resolve(b!), 'image/png');
+                      };
+                      img.src = URL.createObjectURL(blob);
+                    });
+                    await navigator.clipboard.write([
+                      new ClipboardItem({ 'image/png': pngBlob })
+                    ]);
+                  } catch (e) {
+                    console.error('Failed to copy image:', e);
+                  }
+                }}>
+                  <Image className="mr-2 h-4 w-4" />
+                  이미지 복사
+                </ContextMenuItem>
+              )}
               <ContextMenuSeparator />
               <ContextMenuItem onClick={handleMarkSpam} className="text-destructive focus:text-destructive">
                 <ShieldAlert className="mr-2 h-4 w-4" />
@@ -2041,23 +2419,28 @@ function EmailViewComponent() {
       )}
 
             {/* Resizer for reply panel */}
-        {showReplyForm && !isDraftEmail && !isComposing && (
+        {showReplyForm && !isDraftEmail && !isComposing && !isPopupMode && (
           <Resizer
             direction="horizontal"
             onResize={(delta) => {
               const containerHeight = document.querySelector('.flex-1.flex.flex-col.min-h-0.overflow-hidden')?.clientHeight || 500;
               const deltaPercent = (delta / containerHeight) * 100;
-              setReplyHeight((h) => Math.max(25, Math.min(75, h - deltaPercent)));
+              setReplyHeight((h) => Math.max(20, Math.min(100, h - deltaPercent)));
             }}
           />
         )}
 
-        {/* Inline Reply/Forward Form */}
+        {/* Reply/Forward Form (inline or popup) */}
         {showReplyForm && (
           <div
-            style={{ height: `${replyPanelHeight}%` }}
+            style={isPopupMode
+              ? { position: 'fixed', left: popupPos.x, top: popupPos.y, width: popupSize.w, height: popupSize.h, zIndex: 9999 }
+              : { height: `${replyPanelHeight}%` }
+            }
             className={cn(
-              "flex flex-col min-h-0 border-t bg-muted/20 overflow-hidden relative",
+              "flex flex-col min-h-0 bg-muted/20 overflow-hidden relative",
+              !isPopupMode && "border-t",
+              isPopupMode && "border rounded-lg shadow-2xl bg-background",
               isDraggingFile && "ring-2 ring-primary ring-inset"
             )}
             onDragEnter={handleDragEnter}
@@ -2065,6 +2448,15 @@ function EmailViewComponent() {
             onDragOver={handleDragOver}
             onDrop={handleDrop}
           >
+            {/* 팝업 모드 타이틀바 (드래그 가능) */}
+            {isPopupMode && (
+              <div
+                className="h-7 bg-muted/60 border-b cursor-move flex items-center justify-center shrink-0 select-none"
+                onMouseDown={handlePopupDragStart}
+              >
+                <div className="w-10 h-1 rounded-full bg-muted-foreground/30" />
+              </div>
+            )}
             {/* 드래그 오버레이 */}
             {isDraggingFile && (
               <div className="absolute inset-0 bg-primary/10 z-50 flex items-center justify-center pointer-events-none">
@@ -2075,18 +2467,46 @@ function EmailViewComponent() {
             )}
             <div className="p-3 border-b space-y-2 shrink-0">
               <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">
-                  {isComposeOnly
-                    ? '\uC0C8 \uBA54\uC77C'
-                    : isDraftEmail
-                      ? '\uC784\uC2DC\uBCF4\uAD00\uD568 \uD3B8\uC9D1'
-                      : isReplying
-                        ? '\uB2F5\uC7A5'
-                        : '\uC804\uB2EC'}
-                </span>
-                <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCancelReply}>
-                  <X className="h-4 w-4" />
-                </Button>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">
+                    {isComposeOnly
+                      ? '\uC0C8 \uBA54\uC77C'
+                      : isDraftEmail
+                        ? '\uC784\uC2DC\uBCF4\uAD00\uD568 \uD3B8\uC9D1'
+                        : isReplying
+                          ? '\uB2F5\uC7A5'
+                          : '\uC804\uB2EC'}
+                  </span>
+                  {replyQuoteHtmlRef.current && (isReplying || isForwarding) && (
+                    <span className="text-xs text-muted-foreground bg-muted/50 px-1.5 py-0.5 rounded">
+                      {'\uC6D0\uBCF8 \uC774\uBBF8\uC9C0 \uD3EC\uD568'}
+                    </span>
+                  )}
+                </div>
+                <div className="flex items-center gap-0.5">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7"
+                    onClick={() => {
+                      setIsPopupMode((v) => {
+                        if (!v) {
+                          // 팝업 모드 진입 시 화면 가운데 배치
+                          const cx = Math.max(0, Math.round((window.innerWidth - popupSize.w) / 2));
+                          const cy = Math.max(0, Math.round((window.innerHeight - popupSize.h) / 2));
+                          setPopupPos({ x: cx, y: cy });
+                        }
+                        return !v;
+                      });
+                    }}
+                    title={isPopupMode ? '인라인 모드' : '팝업 모드'}
+                  >
+                    {isPopupMode ? <Minimize2 className="h-4 w-4" /> : <ExternalLink className="h-4 w-4" />}
+                  </Button>
+                  <Button variant="ghost" size="icon" className="h-7 w-7" onClick={handleCancelReply}>
+                    <X className="h-4 w-4" />
+                  </Button>
+                </div>
               </div>
               <div className="flex items-center gap-2">
                 <label className="w-16 text-sm text-muted-foreground shrink-0">{'\uBC1B\uB294 \uC0AC\uB78C'}</label>
@@ -2106,17 +2526,15 @@ function EmailViewComponent() {
                   className="h-8 text-sm"
                 />
               </div>
-              {(isComposeOnly || isDraftEmail) && (
-                <div className="flex items-center gap-2">
-                  <label className="w-16 text-sm text-muted-foreground shrink-0">{'\uC228\uC740\uCC38\uC870'}</label>
-                  <ContactInput
-                    value={replyBcc}
-                    onChange={setReplyBcc}
-                    placeholder={'\uC228\uC740\uCC38\uC870 (\uC120\uD0DD)'}
-                    className="h-8 text-sm"
-                  />
-                </div>
-              )}
+              <div className="flex items-center gap-2">
+                <label className="w-16 text-sm text-muted-foreground shrink-0">{'\uC228\uC740\uCC38\uC870'}</label>
+                <ContactInput
+                  value={replyBcc}
+                  onChange={setReplyBcc}
+                  placeholder={'\uC228\uC740\uCC38\uC870 (\uC120\uD0DD)'}
+                  className="h-8 text-sm"
+                />
+              </div>
               <div className="flex items-center gap-2">
                 <label className="w-16 text-sm text-muted-foreground shrink-0">{'\uC81C\uBAA9'}</label>
                 <Input
@@ -2213,14 +2631,44 @@ function EmailViewComponent() {
               )}
             </div>
 
-            <div className="flex-1 p-3 min-h-0 overflow-hidden">
-              <Textarea
-                value={replyBody}
-                onChange={(e) => setReplyBody(e.target.value)}
-                placeholder={'\uB0B4\uC6A9\uC744 \uC785\uB825\uD558\uC138\uC694..'}
-                className="h-full min-h-[80px] resize-none text-sm"
-              />
-            </div>
+            <div
+              ref={replyEditorRef}
+              className="flex-1 p-3 min-h-0 overflow-auto text-sm outline-none whitespace-pre-wrap border-0 focus:ring-0"
+              contentEditable
+              suppressContentEditableWarning
+              onInput={(e) => {
+                editorInternalUpdate.current = true;
+                const text = getEditorUserText(e.currentTarget);
+                setReplyBody(text || '');
+              }}
+              onSelect={handleTextSelect}
+              onMouseUp={handleTextSelect}
+              onKeyUp={handleTextSelect}
+              onPaste={(e) => {
+                // 클립보드에 이미지가 있으면 인라인 삽입
+                const items = e.clipboardData.items;
+                for (const item of Array.from(items)) {
+                  if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => {
+                      const dataUrl = reader.result as string;
+                      document.execCommand('insertHTML', false,
+                        `<img src="${dataUrl}" style="max-width:100%;height:auto;display:block;margin:4px 0;" />`
+                      );
+                    };
+                    reader.readAsDataURL(file);
+                    return;
+                  }
+                }
+                // 일반 텍스트 붙여넣기
+                e.preventDefault();
+                const text = e.clipboardData.getData('text/plain');
+                document.execCommand('insertText', false, text);
+              }}
+            />
 
             {showProofreadCompare && proofreadBefore && proofreadAfter && (
               <div className="px-3 pb-3">
@@ -2347,7 +2795,7 @@ function EmailViewComponent() {
                     {'\uC784\uC2DC\uBCF4\uAD00 \uC0AD\uC81C'}
                   </Button>
                 )}
-                {(isComposeOnly || isDraftEmail) && (
+                {(isComposeOnly || isDraftEmail || isReplying || isForwarding) && (
                   <Button
                     variant="outline"
                     size="sm"
@@ -2359,7 +2807,7 @@ function EmailViewComponent() {
                     ) : (
                       <Sparkles className="h-4 w-4 mr-2" />
                     )}
-                    {'AI \uAD50\uC815'}
+                    {hasTextSelection ? 'AI \uAD50\uC815 (\uC120\uD0DD)' : 'AI \uAD50\uC815'}
                   </Button>
                 )}
                 <Button variant="outline" size="sm" onClick={handleCancelReply}>
@@ -2375,6 +2823,19 @@ function EmailViewComponent() {
                 </Button>
               </div>
             </div>
+            {/* 팝업 모드 리사이즈 핸들 */}
+            {isPopupMode && (
+              <div
+                className="absolute bottom-0 right-0 w-4 h-4 cursor-nwse-resize"
+                onMouseDown={handlePopupResizeStart}
+                style={{ touchAction: 'none' }}
+              >
+                <svg viewBox="0 0 16 16" className="w-4 h-4 text-muted-foreground/40">
+                  <path d="M14 14L8 14L14 8Z" fill="currentColor" />
+                  <path d="M14 14L11 14L14 11Z" fill="currentColor" opacity="0.5" />
+                </svg>
+              </div>
+            )}
           </div>
         )}
 
@@ -2446,6 +2907,50 @@ function EmailViewComponent() {
                 className="hwp-preview-content text-black"
                 style={{ fontFamily: '맑은 고딕, Malgun Gothic, Batang, sans-serif', color: '#000', background: '#fff', maxWidth: '800px', width: '100%', padding: '20px' }}
                 dangerouslySetInnerHTML={{ __html: hwpPreview.html }}
+              />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 이미지 미리보기 모달 */}
+      {imagePreview && (
+        <div
+          className="fixed inset-0 z-[9999] bg-black/80 flex items-center justify-center"
+          onClick={() => setImagePreview(null)}
+        >
+          <div
+            className="relative w-[90vw] h-[90vh] bg-background rounded-lg overflow-hidden flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between p-3 border-b">
+              <span className="font-medium truncate">{imagePreview.filename}</span>
+              <div className="flex items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (selectedEmail) {
+                      const attachment = selectedEmail.attachments?.find(a => a.filename === imagePreview.filename);
+                      if (attachment) {
+                        handleDownloadAttachment(attachment.id, attachment.filename);
+                      }
+                    }
+                  }}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  다운로드
+                </Button>
+                <Button variant="ghost" size="icon" onClick={() => setImagePreview(null)}>
+                  <X className="h-4 w-4" />
+                </Button>
+              </div>
+            </div>
+            <div className="flex-1 overflow-auto flex items-center justify-center p-4">
+              <img
+                src={imagePreview.dataUrl}
+                alt={imagePreview.filename}
+                className="max-w-full max-h-full object-contain"
               />
             </div>
           </div>

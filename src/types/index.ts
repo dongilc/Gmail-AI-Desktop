@@ -29,6 +29,7 @@ export interface Email {
   isImportant: boolean;
   labels: string[];
   attachments?: Attachment[];
+  inlineImageIds?: string[];
   summary?: EmailSummary;
 }
 

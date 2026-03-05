@@ -47,6 +47,7 @@ export class GoogleAuth {
   private accounts: Map<string, Account> = new Map();
   private authClients: Map<string, Auth.OAuth2Client> = new Map();
   private credentials: Credentials | null = null;
+  private activeLoginServer: http.Server | null = null;
 
   constructor() {
     this.loadCredentials();
@@ -119,6 +120,14 @@ export class GoogleAuth {
       prompt: 'consent',
     });
 
+    // 이전 로그인 서버가 남아있으면 정리
+    if (this.activeLoginServer) {
+      try {
+        this.activeLoginServer.close();
+      } catch {}
+      this.activeLoginServer = null;
+    }
+
     return new Promise((resolve, reject) => {
       // 로컬 HTTP 서버로 콜백 받기
       const server = http.createServer(async (req, res) => {
@@ -145,6 +154,7 @@ export class GoogleAuth {
 
               // 서버 종료
               server.close();
+              this.activeLoginServer = null;
 
               // 토큰 교환
               const { tokens } = await auth.getToken(code);
@@ -182,6 +192,7 @@ export class GoogleAuth {
                 </html>
               `);
               server.close();
+              this.activeLoginServer = null;
               reject(new Error('No authorization code received'));
             }
           }
@@ -198,8 +209,17 @@ export class GoogleAuth {
             </html>
           `);
           server.close();
+          this.activeLoginServer = null;
           reject(error);
         }
+      });
+
+      this.activeLoginServer = server;
+
+      server.on('error', (err: any) => {
+        console.error(`[Auth] OAuth callback server error:`, err.message);
+        this.activeLoginServer = null;
+        reject(new Error(`OAuth 서버 시작 실패: ${err.message}`));
       });
 
       server.listen(CALLBACK_PORT, () => {
@@ -211,6 +231,7 @@ export class GoogleAuth {
       // 타임아웃 설정 (5분)
       setTimeout(() => {
         server.close();
+        this.activeLoginServer = null;
         reject(new Error('Authentication timeout'));
       }, 5 * 60 * 1000);
     });

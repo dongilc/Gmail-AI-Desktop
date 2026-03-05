@@ -43,7 +43,7 @@ export function QuickAddTodo() {
 
   useEffect(() => {
     if (!isQuickAddOpen) return;
-    if (quickAddEmail && title.trim() === '') {
+    if (quickAddEmail) {
       setTitle(`[\uBA54\uC77C] ${quickAddEmail.subject}`);
     }
   }, [isQuickAddOpen, quickAddEmail]);

@@ -18,27 +18,39 @@ export function useAutoRefresh() {
     const doRefresh = async () => {
       if (isRefreshingRef.current) return;
 
-      const accountId = useAccountsStore.getState().currentAccountId;
-      if (!accountId) return;
+      const accounts = useAccountsStore.getState().accounts;
+      const currentAccountId = useAccountsStore.getState().currentAccountId;
+      if (accounts.length === 0) return;
 
       isRefreshingRef.current = true;
-      console.log('[AutoRefresh] 시작', new Date().toLocaleTimeString());
+      console.log('[AutoRefresh] 시작 - 전체 계정 동기화', new Date().toLocaleTimeString());
 
       try {
-        // 이메일 증분 동기화
-        await window.electronAPI.syncEmails(accountId);
+        // 모든 계정 이메일 증분 동기화 (순차 처리)
+        const setSyncingAccount = useEmailsStore.getState().setSyncingAccount;
+        for (const account of accounts) {
+          try {
+            setSyncingAccount(account.id, true);
+            await window.electronAPI.syncEmails(account.id);
+            console.log(`[AutoRefresh] 계정 동기화 완료: ${account.email}`);
+          } catch (err) {
+            console.error(`[AutoRefresh] 계정 동기화 실패: ${account.email}`, err);
+          } finally {
+            setSyncingAccount(account.id, false);
+          }
+        }
 
-        // 현재 뷰 새로고침
-        const currentView = useEmailsStore.getState().currentView;
-        await useEmailsStore.getState().fetchEmailsForView(accountId, currentView);
+        // 현재 계정만 UI 새로고침
+        if (currentAccountId) {
+          const currentView = useEmailsStore.getState().currentView;
+          await useEmailsStore.getState().fetchEmailsForView(currentAccountId, currentView);
 
-        // 캘린더 새로고침
-        await useCalendarStore.getState().fetchEvents(accountId);
+          await useCalendarStore.getState().fetchEvents(currentAccountId);
 
-        // 할 일 새로고침
-        const selectedTaskListId = useTasksStore.getState().selectedTaskListId;
-        if (selectedTaskListId) {
-          await useTasksStore.getState().fetchTasks(accountId, selectedTaskListId);
+          const selectedTaskListId = useTasksStore.getState().selectedTaskListId;
+          if (selectedTaskListId) {
+            await useTasksStore.getState().fetchTasks(currentAccountId, selectedTaskListId);
+          }
         }
 
         console.log('[AutoRefresh] 완료', new Date().toLocaleTimeString());
@@ -49,9 +61,12 @@ export function useAutoRefresh() {
       }
     };
 
+    // 시작 직후 1회 실행 (5초 딜레이로 앱 초기화 대기)
+    const initialTimer = setTimeout(doRefresh, 5000);
     const timer = setInterval(doRefresh, intervalMs);
 
     return () => {
+      clearTimeout(initialTimer);
       clearInterval(timer);
     };
   }, [autoRefreshEnabled, autoRefreshInterval]);

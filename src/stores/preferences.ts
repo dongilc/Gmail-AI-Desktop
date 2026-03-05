@@ -44,6 +44,8 @@ interface PreferencesState {
   setAutoRefreshEnabled: (value: boolean) => void;
   autoRefreshInterval: number;
   setAutoRefreshInterval: (value: number) => void;
+  downloadFolder: string;
+  setDownloadFolder: (value: string) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -89,10 +91,12 @@ export const usePreferencesStore = create<PreferencesState>()(
       setAutoRefreshEnabled: (value) => set({ autoRefreshEnabled: value }),
       autoRefreshInterval: 5,
       setAutoRefreshInterval: (value) => set({ autoRefreshInterval: value }),
+      downloadFolder: '',
+      setDownloadFolder: (value) => set({ downloadFolder: value }),
     }),
     {
       name: 'gmail-desktop-preferences',
-      version: 11,
+      version: 12,
       migrate: (state: any, _version) => {
         if (!state) return state;
         let next = { ...state };
@@ -137,6 +141,9 @@ export const usePreferencesStore = create<PreferencesState>()(
         }
         if (next.autoRefreshInterval === undefined || next.autoRefreshInterval < 1) {
           next.autoRefreshInterval = 5;
+        }
+        if (next.downloadFolder === undefined) {
+          next.downloadFolder = '';
         }
         return next;
       },

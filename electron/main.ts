@@ -975,6 +975,16 @@ ipcMain.handle('gmail:trash-message', async (_, accountId: string, messageId: st
   return result;
 });
 
+ipcMain.handle('gmail:untrash-message', async (_, accountId: string, messageId: string) => {
+  const auth = await googleAuth.getAuthClient(accountId);
+  const result = await gmailService.untrashMessage(auth, messageId);
+
+  // 캐시에서도 삭제 (복구된 메일은 휴지통 목록에서 제거)
+  cacheService.removeEmail(accountId, messageId);
+
+  return result;
+});
+
 // 캐시 관련 핸들러
 ipcMain.handle('cache:refresh', async (_, accountId: string) => {
   // 캐시 무효화하고 새로 가져오기
@@ -1010,14 +1020,18 @@ ipcMain.handle('gmail:get-attachment', async (_, accountId: string, messageId: s
   return { data };
 });
 
-ipcMain.handle('gmail:download-attachment', async (_, accountId: string, messageId: string, attachmentId: string, filename: string) => {
+ipcMain.handle('gmail:download-attachment', async (_, accountId: string, messageId: string, attachmentId: string, filename: string, downloadFolder?: string) => {
   const auth = await googleAuth.getAuthClient(accountId);
   const result = await gmailService.downloadAttachment(auth, messageId, attachmentId);
 
   // 파일 저장 다이얼로그 표시
   const { dialog } = await import('electron');
+  const path = await import('path');
+  const defaultPath = downloadFolder
+    ? path.join(downloadFolder, filename)
+    : filename;
   const { canceled, filePath } = await dialog.showSaveDialog({
-    defaultPath: filename,
+    defaultPath,
     filters: [{ name: 'All Files', extensions: ['*'] }],
   });
 
@@ -1399,6 +1413,21 @@ ipcMain.handle('ai:generate', async (_event, payload: { prompt: string }) => {
     console.error('Ollama generate failed:', error);
     return { text: '', promptTokens: 0, evalTokens: 0 };
   }
+});
+
+// System handlers
+ipcMain.handle('app:select-folder', async (_, defaultPath?: string) => {
+  const { dialog } = await import('electron');
+  const { canceled, filePaths } = await dialog.showOpenDialog({
+    defaultPath: defaultPath || app.getPath('downloads'),
+    properties: ['openDirectory'],
+  });
+  if (canceled || filePaths.length === 0) return null;
+  return filePaths[0];
+});
+
+ipcMain.handle('app:get-downloads-path', async () => {
+  return app.getPath('downloads');
 });
 
 // Print / PDF handlers

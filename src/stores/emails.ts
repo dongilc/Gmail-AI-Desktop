@@ -23,6 +23,7 @@ interface EmailsState {
   pageTokens: Record<string, string | undefined>; // accountId -> nextPageToken
   manuallyMarkedUnread: Set<string>; // 명시적으로 안 읽음 표시한 이메일 ID들
   scrollTargetEmailId: string | null;
+  syncingAccountIds: Set<string>; // 백그라운드 동기화 중인 계정 ID들
 
   // Actions
   setEmails: (accountId: string, emails: Email[]) => void;
@@ -37,6 +38,7 @@ interface EmailsState {
   setSearchQuery: (query: string) => void;
   setPageToken: (accountId: string, token: string | undefined) => void;
   setScrollTargetEmailId: (emailId: string | null) => void;
+  setSyncingAccount: (accountId: string, isSyncing: boolean) => void;
   updateEmail: (accountId: string, email: Email) => void;
   removeEmail: (accountId: string, emailId: string) => void;
 
@@ -50,6 +52,7 @@ interface EmailsState {
   markAsRead: (accountId: string, emailId: string) => Promise<void>;
   markAsUnread: (accountId: string, emailId: string) => Promise<void>;
   trashEmail: (accountId: string, emailId: string) => Promise<void>;
+  restoreEmail: (accountId: string, emailId: string) => Promise<void>;
   markAsSpam: (accountId: string, emailId: string) => Promise<void>;
   searchEmails: (accountId: string, query: string) => Promise<void>;
   fetchEmailsForView: (accountId: string, view: ViewType) => Promise<void>;
@@ -125,6 +128,7 @@ export const useEmailsStore = create<EmailsState>((set, get) => {
   pageTokens: {},
   manuallyMarkedUnread: new Set<string>(),
   scrollTargetEmailId: null,
+  syncingAccountIds: new Set<string>(),
 
   setEmails: (accountId, emails) =>
     set((state) => ({
@@ -185,6 +189,17 @@ export const useEmailsStore = create<EmailsState>((set, get) => {
     })),
 
   setScrollTargetEmailId: (emailId) => set({ scrollTargetEmailId: emailId }),
+
+  setSyncingAccount: (accountId, isSyncing) =>
+    set((state) => {
+      const next = new Set(state.syncingAccountIds);
+      if (isSyncing) {
+        next.add(accountId);
+      } else {
+        next.delete(accountId);
+      }
+      return { syncingAccountIds: next };
+    }),
 
   updateEmail: (accountId, updatedEmail) =>
     set((state) => {
@@ -343,12 +358,14 @@ export const useEmailsStore = create<EmailsState>((set, get) => {
 
       // 2단계: 백그라운드에서 동기화
       set({ isSyncing: true });
+      get().setSyncingAccount(accountId, true);
 
       try {
         await window.electronAPI.syncEmails(accountId);
 
         if (isStale()) {
           set({ isSyncing: false });
+          get().setSyncingAccount(accountId, false);
           return; // 동기화 완료했지만 이미 다른 계정/뷰로 전환됨
         }
 
@@ -359,15 +376,18 @@ export const useEmailsStore = create<EmailsState>((set, get) => {
 
         if (isStale()) {
           set({ isSyncing: false });
+          get().setSyncingAccount(accountId, false);
           return;
         }
 
         const updatedEmails = mergeCachedEmails(accountId, updated.messages);
 
         applyChunkedEmails(updatedEmails, { isLoading: false, isSyncing: false });
+        get().setSyncingAccount(accountId, false);
       } catch (syncError) {
         console.error('Sync failed:', syncError);
         set({ isSyncing: false, isLoading: false });
+        get().setSyncingAccount(accountId, false);
       }
     } catch (error) {
       set({
@@ -499,6 +519,17 @@ export const useEmailsStore = create<EmailsState>((set, get) => {
     } catch (error) {
       set({
         error: error instanceof Error ? error.message : '이메일 삭제에 실패했습니다.',
+      });
+    }
+  },
+
+  restoreEmail: async (accountId, emailId) => {
+    try {
+      await window.electronAPI.untrashMessage(accountId, emailId);
+      get().removeEmail(accountId, emailId);
+    } catch (error) {
+      set({
+        error: error instanceof Error ? error.message : '메일 복구에 실패했습니다.',
       });
     }
   },

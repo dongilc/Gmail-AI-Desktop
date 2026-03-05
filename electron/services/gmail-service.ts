@@ -18,31 +18,136 @@ export class GmailService {
     return Buffer.from(padded, 'base64').toString('utf-8');
   }
 
+  private encodeMimeSubject(subject: string): string {
+    if (!subject) return '';
+    // ASCII-only subjects don't need encoding
+    if (/^[\x20-\x7E]*$/.test(subject)) return subject;
+
+    const bytes = Buffer.from(subject, 'utf-8');
+    const maxBytes = 30; // Each chunk → ~40 base64 chars → ~52 chars total per encoded-word (under 75 limit)
+    const parts: string[] = [];
+    let i = 0;
+    while (i < bytes.length) {
+      let end = Math.min(i + maxBytes, bytes.length);
+      // Don't split in the middle of a multi-byte UTF-8 character
+      while (end < bytes.length && (bytes[end] & 0xC0) === 0x80) end++;
+      parts.push(`=?UTF-8?B?${bytes.slice(i, end).toString('base64')}?=`);
+      i = end;
+    }
+    return parts.join('\r\n ');
+  }
+
   private buildRawMessage(draft: EmailDraft): string {
-    if (draft.attachments && draft.attachments.length > 0) {
-      const boundary = `boundary_${Date.now()}_${Math.random().toString(36).substr(2)}`;
+    // Extract inline data-URI images from HTML body
+    let htmlBody = draft.body || '';
+    const inlineImages: { cid: string; mimeType: string; base64Data: string }[] = [];
+
+    if (draft.isHtml && htmlBody) {
+      const dataUriRegex = /src="data:(image\/[^;]+);base64,([^"]+)"/g;
+      let match: RegExpExecArray | null;
+      let imgIndex = 0;
+
+      while ((match = dataUriRegex.exec(htmlBody)) !== null) {
+        imgIndex++;
+        const cid = `inline_img_${imgIndex}_${Date.now()}@gmail-desktop`;
+        inlineImages.push({
+          cid,
+          mimeType: match[1],
+          base64Data: match[2],
+        });
+      }
+
+      // Replace data URIs with cid: references (iterate in reverse to preserve indices)
+      if (inlineImages.length > 0) {
+        let idx = 0;
+        htmlBody = htmlBody.replace(/src="data:image\/[^;]+;base64,[^"]+"/g, () => {
+          const cid = inlineImages[idx].cid;
+          idx++;
+          return `src="cid:${cid}"`;
+        });
+      }
+    }
+
+    const hasAttachments = draft.attachments && draft.attachments.length > 0;
+    const hasInlineImages = inlineImages.length > 0;
+
+    // Common headers (without Content-Type, added per-case below)
+    const baseHeaders = [
+      draft.to?.length ? `To: ${draft.to.join(', ')}` : '',
+      draft.cc?.length ? `Cc: ${draft.cc.join(', ')}` : '',
+      draft.bcc?.length ? `Bcc: ${draft.bcc.join(', ')}` : '',
+      draft.subject ? `Subject: ${this.encodeMimeSubject(draft.subject)}` : '',
+      draft.replyToMessageId ? `In-Reply-To: <${draft.replyToMessageId}>` : '',
+      draft.replyToMessageId ? `References: <${draft.replyToMessageId}>` : '',
+      'MIME-Version: 1.0',
+    ].filter(Boolean);
+
+    const bodyContent = draft.isHtml ? htmlBody : (draft.body || '');
+    const encodedBody = Buffer.from(bodyContent).toString('base64');
+
+    // Case 1: No attachments and no inline images — simple message
+    if (!hasAttachments && !hasInlineImages) {
+      const headers = [
+        ...baseHeaders,
+        `Content-Type: ${draft.isHtml ? 'text/html' : 'text/plain'}; charset=utf-8`,
+        'Content-Transfer-Encoding: base64',
+      ].join('\r\n');
+
+      return `${headers}\r\n\r\n${encodedBody}`;
+    }
+
+    // Case 2: Inline images only (no file attachments) — multipart/related
+    if (hasInlineImages && !hasAttachments) {
+      const relatedBoundary = `related_${Date.now()}_${Math.random().toString(36).substr(2)}`;
 
       const headers = [
-        draft.to?.length ? `To: ${draft.to.join(', ')}` : '',
-        draft.cc?.length ? `Cc: ${draft.cc.join(', ')}` : '',
-        draft.bcc?.length ? `Bcc: ${draft.bcc.join(', ')}` : '',
-        draft.subject ? `Subject: =?UTF-8?B?${Buffer.from(draft.subject).toString('base64')}?=` : '',
-        draft.replyToMessageId ? `In-Reply-To: <${draft.replyToMessageId}>` : '',
-        draft.replyToMessageId ? `References: <${draft.replyToMessageId}>` : '',
-        'MIME-Version: 1.0',
-        `Content-Type: multipart/mixed; boundary="${boundary}"`,
-      ].filter(Boolean).join('\r\n');
+        ...baseHeaders,
+        `Content-Type: multipart/related; boundary="${relatedBoundary}"`,
+      ].join('\r\n');
 
-      const bodyPart = [
-        `--${boundary}`,
+      const htmlPart = [
+        `--${relatedBoundary}`,
         `Content-Type: ${draft.isHtml ? 'text/html' : 'text/plain'}; charset=utf-8`,
         'Content-Transfer-Encoding: base64',
         '',
-        Buffer.from(draft.body || '').toString('base64'),
+        encodedBody,
       ].join('\r\n');
 
-      const attachmentParts = draft.attachments.map((att) => [
-        `--${boundary}`,
+      const inlineParts = inlineImages.map((img) => {
+        const ext = img.mimeType.split('/')[1] || 'png';
+        return [
+          `--${relatedBoundary}`,
+          `Content-Type: ${img.mimeType}; name="inline_${img.cid.split('_')[2]}.${ext}"`,
+          'Content-Transfer-Encoding: base64',
+          `Content-ID: <${img.cid}>`,
+          'Content-Disposition: inline',
+          '',
+          img.base64Data,
+        ].join('\r\n');
+      }).join('\r\n');
+
+      return `${headers}\r\n\r\n${htmlPart}\r\n${inlineParts}\r\n--${relatedBoundary}--`;
+    }
+
+    // Case 3: File attachments only (no inline images) — multipart/mixed
+    if (hasAttachments && !hasInlineImages) {
+      const mixedBoundary = `mixed_${Date.now()}_${Math.random().toString(36).substr(2)}`;
+
+      const headers = [
+        ...baseHeaders,
+        `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
+      ].join('\r\n');
+
+      const bodyPart = [
+        `--${mixedBoundary}`,
+        `Content-Type: ${draft.isHtml ? 'text/html' : 'text/plain'}; charset=utf-8`,
+        'Content-Transfer-Encoding: base64',
+        '',
+        encodedBody,
+      ].join('\r\n');
+
+      const attachmentParts = draft.attachments!.map((att) => [
+        `--${mixedBoundary}`,
         `Content-Type: ${att.mimeType}; name="${att.filename}"`,
         'Content-Transfer-Encoding: base64',
         `Content-Disposition: attachment; filename="${att.filename}"`,
@@ -50,24 +155,58 @@ export class GmailService {
         att.data,
       ].join('\r\n')).join('\r\n');
 
-      return `${headers}\r\n\r\n${bodyPart}\r\n${attachmentParts}\r\n--${boundary}--`;
+      return `${headers}\r\n\r\n${bodyPart}\r\n${attachmentParts}\r\n--${mixedBoundary}--`;
     }
 
+    // Case 4: Both inline images AND file attachments — multipart/mixed wrapping multipart/related
+    const mixedBoundary = `mixed_${Date.now()}_${Math.random().toString(36).substr(2)}`;
+    const relatedBoundary = `related_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
     const headers = [
-      draft.to?.length ? `To: ${draft.to.join(', ')}` : '',
-      draft.cc?.length ? `Cc: ${draft.cc.join(', ')}` : '',
-      draft.bcc?.length ? `Bcc: ${draft.bcc.join(', ')}` : '',
-      draft.subject ? `Subject: =?UTF-8?B?${Buffer.from(draft.subject).toString('base64')}?=` : '',
-      draft.replyToMessageId ? `In-Reply-To: <${draft.replyToMessageId}>` : '',
-      draft.replyToMessageId ? `References: <${draft.replyToMessageId}>` : '',
-      'MIME-Version: 1.0',
+      ...baseHeaders,
+      `Content-Type: multipart/mixed; boundary="${mixedBoundary}"`,
+    ].join('\r\n');
+
+    // Build the multipart/related section (HTML body + inline images)
+    const relatedHeader = [
+      `--${mixedBoundary}`,
+      `Content-Type: multipart/related; boundary="${relatedBoundary}"`,
+    ].join('\r\n');
+
+    const htmlPart = [
+      `--${relatedBoundary}`,
       `Content-Type: ${draft.isHtml ? 'text/html' : 'text/plain'}; charset=utf-8`,
       'Content-Transfer-Encoding: base64',
-    ].filter(Boolean).join('\r\n');
+      '',
+      encodedBody,
+    ].join('\r\n');
 
-    const encodedBody = Buffer.from(draft.body || '').toString('base64');
+    const inlineParts = inlineImages.map((img) => {
+      const ext = img.mimeType.split('/')[1] || 'png';
+      return [
+        `--${relatedBoundary}`,
+        `Content-Type: ${img.mimeType}; name="inline_${img.cid.split('_')[2]}.${ext}"`,
+        'Content-Transfer-Encoding: base64',
+        `Content-ID: <${img.cid}>`,
+        'Content-Disposition: inline',
+        '',
+        img.base64Data,
+      ].join('\r\n');
+    }).join('\r\n');
 
-    return `${headers}\r\n\r\n${encodedBody}`;
+    const relatedSection = `${relatedHeader}\r\n\r\n${htmlPart}\r\n${inlineParts}\r\n--${relatedBoundary}--`;
+
+    // Build file attachment parts
+    const attachmentParts = draft.attachments!.map((att) => [
+      `--${mixedBoundary}`,
+      `Content-Type: ${att.mimeType}; name="${att.filename}"`,
+      'Content-Transfer-Encoding: base64',
+      `Content-Disposition: attachment; filename="${att.filename}"`,
+      '',
+      att.data,
+    ].join('\r\n')).join('\r\n');
+
+    return `${headers}\r\n\r\n${relatedSection}\r\n${attachmentParts}\r\n--${mixedBoundary}--`;
   }
 
   // 첨부파일 데이터 가져오기
@@ -107,9 +246,12 @@ export class GmailService {
       for (let i = 0; i < messageIds.length; i += batchSize) {
         const batch = messageIds.slice(i, i + batchSize);
         const batchResults = await Promise.all(
-          batch.map(id => this.getMessagePreview(auth, id))
+          batch.map(id => this.getMessagePreview(auth, id).catch((err: any) => {
+            console.warn(`[Gmail] Failed to fetch message ${id}: ${err?.status || err?.code || err?.message}`);
+            return null;
+          }))
         );
-        messages = messages.concat(batchResults);
+        messages = messages.concat(batchResults.filter((msg): msg is Email => msg !== null));
       }
     }
 
@@ -348,6 +490,7 @@ export class GmailService {
     }
 
     // 인라인 이미지 로딩 및 CID 교체 (병렬로 처리)
+    const inlinedAttachmentIds = new Set<string>();
     if (bodyHtml && inlineImageParts.length > 0) {
       try {
         const inlineImages = await Promise.all(
@@ -367,6 +510,7 @@ export class GmailService {
             // URL-safe base64를 표준 base64로 변환
             const standardBase64 = img.data.replace(/-/g, '+').replace(/_/g, '/');
             const dataUrl = `data:${img.mimeType};base64,${standardBase64}`;
+            const bodyBefore = bodyHtml;
 
             // 1. Content-ID로 매칭 (cid:xxx 형식)
             if (img.contentId) {
@@ -385,6 +529,11 @@ export class GmailService {
                 'gi'
               );
               bodyHtml = bodyHtml.replace(srcFilenamePattern, `$1${dataUrl}$2`);
+            }
+
+            // 실제로 본문에 삽입된 이미지만 인라인으로 표시
+            if (bodyHtml !== bodyBefore) {
+              inlinedAttachmentIds.add(img.attachmentId);
             }
           }
         }
@@ -413,6 +562,7 @@ export class GmailService {
       isImportant: labels.includes('IMPORTANT'),
       labels,
       attachments: attachments.length > 0 ? attachments : undefined,
+      inlineImageIds: inlinedAttachmentIds.size > 0 ? Array.from(inlinedAttachmentIds) : undefined,
     };
   }
 
@@ -511,6 +661,15 @@ export class GmailService {
     const gmail = this.getClient(auth);
 
     await gmail.users.messages.trash({
+      userId: 'me',
+      id: messageId,
+    });
+  }
+
+  async untrashMessage(auth: Auth.OAuth2Client, messageId: string): Promise<void> {
+    const gmail = this.getClient(auth);
+
+    await gmail.users.messages.untrash({
       userId: 'me',
       id: messageId,
     });

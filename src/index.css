@@ -99,6 +99,20 @@
   }
 }
 
+/* Sync spinner animation */
+@keyframes spin-slow {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.animate-spin-slow {
+  animation: spin-slow 2s linear infinite;
+}
+
 /* Electron drag region */
 .drag-region {
   -webkit-app-region: drag;
@@ -154,6 +168,25 @@
 }
 
 .dark .email-content-adjust-strong font[color] {
+  color: hsl(var(--foreground)) !important;
+}
+
+/* 편집창 인용문: 다크모드에서 인라인 색상 덮어쓰기 */
+.dark [data-quote-content] .email-content {
+  color: hsl(var(--foreground));
+}
+
+.dark [data-quote-content] .email-content [style*="color"],
+.dark [data-quote-content] .email-content [color],
+.dark [data-quote-content] .email-content font[color] {
+  color: hsl(var(--foreground)) !important;
+}
+
+.dark [data-quote-content] .email-content [style*="background"],
+.dark [data-quote-content] .email-content [bgcolor],
+.dark [data-quote-content] .email-content table[bgcolor],
+.dark [data-quote-content] .email-content td[bgcolor] {
+  background-color: transparent !important;
   color: hsl(var(--foreground)) !important;
 }
 

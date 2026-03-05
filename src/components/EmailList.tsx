@@ -1,5 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo, useState, forwardRef, startTransition, type HTMLAttributes } from 'react';
-import { Star, AlertCircle, Paperclip, ListPlus, Loader2, RefreshCw, Mail, MailOpen, ArrowUp, Sparkles, CalendarPlus, ShieldAlert } from 'lucide-react';
+import { Star, AlertCircle, Paperclip, ListPlus, Loader2, RefreshCw, Mail, MailOpen, ArrowUp, Sparkles, CalendarPlus, ShieldAlert, ArchiveRestore } from 'lucide-react';
 import { useAccountsStore } from '@/stores/accounts';
 import { useEmailsStore } from '@/stores/emails';
 import { useTasksStore } from '@/stores/tasks';
@@ -117,6 +117,7 @@ export function EmailList() {
     markAsRead,
     markAsUnread,
     trashEmail,
+    restoreEmail,
     markAsSpam,
     updateEmail,
     scrollTargetEmailId,
@@ -130,7 +131,10 @@ export function EmailList() {
   const { enqueueTask, addTokens } = useAiStore();
   const maxConcurrent = aiConcurrentTasks || 1;
 
-  const currentEmails = currentAccountId ? emails[currentAccountId] || [] : [];
+  const currentEmails = useMemo(() => {
+    const list = currentAccountId ? emails[currentAccountId] || [] : [];
+    return [...list].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+  }, [currentAccountId, emails]);
   const hasMore = currentAccountId ? !!pageTokens[currentAccountId] : false;
   const virtuosoRef = useRef<VirtuosoHandle>(null);
   const isLoadingMore = useRef(false);
@@ -310,6 +314,11 @@ export function EmailList() {
   const handleBulkTrash = async () => {
     if (!currentAccountId || selectedIds.size == 0) return;
     await Promise.all(Array.from(selectedIds).map((id) => trashEmail(currentAccountId, id)));
+  };
+
+  const handleBulkRestore = async () => {
+    if (!currentAccountId || selectedIds.size == 0) return;
+    await Promise.all(Array.from(selectedIds).map((id) => restoreEmail(currentAccountId, id)));
   };
 
   const handleBulkMarkSpam = async () => {
@@ -780,16 +789,25 @@ export function EmailList() {
                   <Mail className="mr-2 h-4 w-4" />
                   {`\uC120\uD0DD ${selectedIds.size}\uAC1C \uC548\uC77D\uC74C\uC73C\uB85C \uC801\uC6A9`}
                 </ContextMenuItem>
-                <ContextMenuItem onClick={handleBulkMarkSpam} className="text-destructive focus:text-destructive">
-                  <ShieldAlert className="mr-2 h-4 w-4" />
-                  {currentView === 'spam'
-                    ? `선택 ${selectedIds.size}개 스팸 해제`
-                    : `선택 ${selectedIds.size}개 스팸 처리`}
-                </ContextMenuItem>
-                <ContextMenuItem onClick={handleBulkTrash} className="text-destructive focus:text-destructive">
-                  <Mail className="mr-2 h-4 w-4" />
-                  {`\uC120\uD0DD ${selectedIds.size}\uAC1C \uD734\uC9C0\uD1B5`}
-                </ContextMenuItem>
+                {currentView === 'trash' ? (
+                  <ContextMenuItem onClick={handleBulkRestore}>
+                    <ArchiveRestore className="mr-2 h-4 w-4" />
+                    {`선택 ${selectedIds.size}개 복구`}
+                  </ContextMenuItem>
+                ) : (
+                  <>
+                    <ContextMenuItem onClick={handleBulkMarkSpam} className="text-destructive focus:text-destructive">
+                      <ShieldAlert className="mr-2 h-4 w-4" />
+                      {currentView === 'spam'
+                        ? `선택 ${selectedIds.size}개 스팸 해제`
+                        : `선택 ${selectedIds.size}개 스팸 처리`}
+                    </ContextMenuItem>
+                    <ContextMenuItem onClick={handleBulkTrash} className="text-destructive focus:text-destructive">
+                      <Mail className="mr-2 h-4 w-4" />
+                      {`선택 ${selectedIds.size}개 휴지통`}
+                    </ContextMenuItem>
+                  </>
+                )}
                 <ContextMenuSeparator />
               </>
             ) : null}
@@ -860,19 +878,30 @@ export function EmailList() {
             {!isMultiMode && (
               <>
                 <ContextMenuSeparator />
-                <ContextMenuItem
-                  onClick={() => currentAccountId && markAsSpam(currentAccountId, email.id)}
-                  className="text-destructive focus:text-destructive"
-                >
-                  <ShieldAlert className="mr-2 h-4 w-4" />
-                  {currentView === 'spam' ? '스팸 해제' : '스팸 처리'}
-                </ContextMenuItem>
-                <ContextMenuItem
-                  onClick={() => currentAccountId && trashEmail(currentAccountId, email.id)}
-                  className="text-destructive focus:text-destructive"
-                >
-                  {"\uD734\uC9C0\uD1B5"}
-                </ContextMenuItem>
+                {currentView === 'trash' ? (
+                  <ContextMenuItem
+                    onClick={() => currentAccountId && restoreEmail(currentAccountId, email.id)}
+                  >
+                    <ArchiveRestore className="mr-2 h-4 w-4" />
+                    {'받은편지함으로 복구'}
+                  </ContextMenuItem>
+                ) : (
+                  <>
+                    <ContextMenuItem
+                      onClick={() => currentAccountId && markAsSpam(currentAccountId, email.id)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      <ShieldAlert className="mr-2 h-4 w-4" />
+                      {currentView === 'spam' ? '스팸 해제' : '스팸 처리'}
+                    </ContextMenuItem>
+                    <ContextMenuItem
+                      onClick={() => currentAccountId && trashEmail(currentAccountId, email.id)}
+                      className="text-destructive focus:text-destructive"
+                    >
+                      {'휴지통'}
+                    </ContextMenuItem>
+                  </>
+                )}
               </>
             )}
           </ContextMenuContent>
@@ -889,6 +918,7 @@ export function EmailList() {
       handleBulkMarkRead,
       handleBulkMarkUnread,
       handleBulkTrash,
+      handleBulkRestore,
       handleContextSelect,
       handleEmailClick,
       handleGenerateSummary,
@@ -903,6 +933,7 @@ export function EmailList() {
       toggleImportant,
       toggleStar,
       trashEmail,
+      restoreEmail,
     ]
   );
 
