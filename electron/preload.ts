@@ -36,6 +36,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
     ipcRenderer.invoke('gmail:get-attachment', accountId, messageId, attachmentId),
   downloadAttachment: (accountId: string, messageId: string, attachmentId: string, filename: string, downloadFolder?: string) =>
     ipcRenderer.invoke('gmail:download-attachment', accountId, messageId, attachmentId, filename, downloadFolder),
+  saveAttachmentToFolder: (accountId: string, messageId: string, attachmentId: string, filename: string, folderPath: string) =>
+    ipcRenderer.invoke('gmail:save-attachment-to-folder', accountId, messageId, attachmentId, filename, folderPath),
   previewOfficeAttachment: (accountId: string, messageId: string, attachmentId: string, filename: string) =>
     ipcRenderer.invoke('gmail:preview-office-attachment', accountId, messageId, attachmentId, filename),
   previewHwpAttachment: (accountId: string, messageId: string, attachmentId: string, filename: string) =>

@@ -66,9 +66,9 @@ export function SettingsDialog() {
           <DialogTitle>{'\uC124\uC815'}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex gap-4 min-h-[400px]">
+        <div className="flex gap-4 min-h-[400px] max-h-[70vh]">
                     {/* Tabs */}
-          <div className="w-40 space-y-1">
+          <div className="w-40 space-y-1 shrink-0">
             <TabButton
               icon={User}
               label={'\uACC4\uC815'}
@@ -108,7 +108,7 @@ export function SettingsDialog() {
           </div>
 
           {/* Content */}
-          <div className="flex-1 border-l pl-4">
+          <div className="flex-1 border-l pl-4 overflow-y-auto">
             {activeTab === 'accounts' && <AccountsTab />}
             {activeTab === 'general' && <GeneralTab />}
             {activeTab === 'aiServer' && <AiServerTab />}
@@ -156,7 +156,11 @@ function AccountsTab() {
     setPrimaryAccountId,
     accountOrder,
     setAccountOrder,
+    accountSignatures,
+    setAccountSignature,
   } = usePreferencesStore();
+  const [editingSignatureId, setEditingSignatureId] = useState<string | null>(null);
+  const [signatureText, setSignatureText] = useState('');
 
   // 주계정 먼저, 그 다음 순서대로 정렬
   const sortedAccounts = [...accounts].sort((a, b) => {
@@ -288,6 +292,88 @@ function AccountsTab() {
         <p>• <strong>주계정</strong>: 앱 시작 시 자동으로 선택됩니다</p>
         <p>• <strong>순서</strong>: 화살표로 계정 표시 순서를 변경합니다</p>
       </div>
+
+      {/* 계정별 서명 설정 */}
+      {accounts.length > 0 && (
+        <div className="border-t pt-4">
+          <h3 className="text-sm font-medium mb-3">계정별 서명</h3>
+          <div className="space-y-3">
+            {accounts.map((account) => (
+              <div key={account.id} className="p-3 border rounded-md">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs text-muted-foreground">{account.email}</span>
+                  {editingSignatureId !== account.id ? (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 text-xs"
+                      onClick={() => {
+                        setEditingSignatureId(account.id);
+                        setSignatureText(accountSignatures[account.id] || '');
+                      }}
+                    >
+                      {accountSignatures[account.id] ? '수정' : '추가'}
+                    </Button>
+                  ) : (
+                    <div className="flex gap-1">
+                      <Button
+                        variant="default"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => {
+                          setAccountSignature(account.id, signatureText);
+                          setEditingSignatureId(null);
+                        }}
+                      >
+                        저장
+                      </Button>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 text-xs"
+                        onClick={() => setEditingSignatureId(null)}
+                      >
+                        취소
+                      </Button>
+                      {accountSignatures[account.id] && (
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 text-xs text-destructive hover:text-destructive"
+                          onClick={() => {
+                            setAccountSignature(account.id, '');
+                            setEditingSignatureId(null);
+                          }}
+                        >
+                          삭제
+                        </Button>
+                      )}
+                    </div>
+                  )}
+                </div>
+                {editingSignatureId === account.id ? (
+                  <textarea
+                    value={signatureText}
+                    onChange={(e) => setSignatureText(e.target.value)}
+                    placeholder="서명을 입력하세요...&#10;예: --&#10;홍길동 | 회사명&#10;010-1234-5678"
+                    className="w-full h-24 text-xs p-2 border rounded-md bg-transparent resize-none outline-none focus:ring-1 focus:ring-ring"
+                    autoFocus
+                  />
+                ) : accountSignatures[account.id] ? (
+                  <pre className="text-xs text-muted-foreground whitespace-pre-wrap bg-muted p-2 rounded-md">
+                    {accountSignatures[account.id]}
+                  </pre>
+                ) : (
+                  <p className="text-xs text-muted-foreground italic">서명이 설정되지 않았습니다</p>
+                )}
+              </div>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground mt-2">
+            메일 작성/답장 시 본문 하단에 서명이 자동으로 추가됩니다.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

@@ -29,6 +29,14 @@ export class TasksService {
     }
   }
 
+  // 로컬 날짜 기준 ISO 문자열 생성 (UTC 변환 없이 날짜 보존)
+  private toLocalDateISOString(date: Date): string {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}T00:00:00.000Z`;
+  }
+
   // emailLink를 notes에 추가
   private appendEmailLinkToNotes(notes: string | undefined, emailLink: Task['emailLink']): string {
     const emailLinkJson = `${EMAIL_LINK_MARKER}${JSON.stringify(emailLink)}${EMAIL_LINK_END_MARKER}`;
@@ -115,7 +123,7 @@ export class TasksService {
     const taskBody: tasks_v1.Schema$Task = {
       title: task.title,
       notes,
-      due: task.due?.toISOString(),
+      due: task.due ? this.toLocalDateISOString(task.due) : undefined,
       status: task.completed ? 'completed' : 'needsAction',
     };
 
@@ -158,7 +166,7 @@ export class TasksService {
       id: task.id,
       title: task.title,
       notes,
-      due: task.due?.toISOString(),
+      due: task.due ? this.toLocalDateISOString(task.due) : undefined,
       status: task.completed ? 'completed' : 'needsAction',
     };
 

@@ -1047,6 +1047,32 @@ ipcMain.handle('gmail:download-attachment', async (_, accountId: string, message
   return { success: false };
 });
 
+// 지정된 폴더에 첨부파일 직접 저장 (다이얼로그 없이)
+ipcMain.handle('gmail:save-attachment-to-folder', async (_, accountId: string, messageId: string, attachmentId: string, filename: string, folderPath: string) => {
+  const auth = await googleAuth.getAuthClient(accountId);
+  const result = await gmailService.downloadAttachment(auth, messageId, attachmentId);
+
+  const fs = await import('fs');
+  const path = await import('path');
+  const data = normalizeBase64Url(result.data);
+  const buffer = Buffer.from(data, 'base64');
+
+  // 같은 이름의 파일이 있으면 번호를 붙여 저장
+  let filePath = path.join(folderPath, filename);
+  if (fs.existsSync(filePath)) {
+    const ext = path.extname(filename);
+    const base = path.basename(filename, ext);
+    let counter = 1;
+    while (fs.existsSync(filePath)) {
+      filePath = path.join(folderPath, `${base} (${counter})${ext}`);
+      counter++;
+    }
+  }
+
+  fs.writeFileSync(filePath, buffer);
+  return { success: true, path: filePath };
+});
+
 ipcMain.handle(
   'gmail:preview-office-attachment',
   async (_, accountId: string, messageId: string, attachmentId: string, filename: string) => {

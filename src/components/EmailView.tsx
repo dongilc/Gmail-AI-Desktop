@@ -110,6 +110,7 @@ function EmailViewComponent() {
   const { openQuickAdd } = useTasksStore();
   const { emailBodyAdjustLevel, setEmailBodyAdjustLevel } = usePreferencesStore();
   const downloadFolder = usePreferencesStore((s) => s.downloadFolder);
+  const accountSignatures = usePreferencesStore((s) => s.accountSignatures);
   const { addTokens, incrementPending, decrementPending, addCompleted } = useAiStore();
 
   // 인라인 답장/전달 상태
@@ -143,6 +144,7 @@ function EmailViewComponent() {
   const initialDraftKeyRef = useRef<string>('');
   const replyQuoteRef = useRef<string>('');
   const replyQuoteHtmlRef = useRef<string>('');
+  const [replyQuoteVersion, setReplyQuoteVersion] = useState(0);
   const [isAiReplying, setIsAiReplying] = useState(false);
   const [isAiProofing, setIsAiProofing] = useState(false);
   const [proofreadTone, setProofreadTone] = useState<'formal' | 'casual'>('formal');
@@ -169,6 +171,7 @@ function EmailViewComponent() {
     for (const node of Array.from(el.childNodes)) {
       if (node instanceof HTMLElement) {
         if (node.hasAttribute('data-quote-content') ||
+            node.hasAttribute('data-signature-content') ||
             node.getAttribute('contenteditable') === 'false' ||
             node.querySelector?.('[data-quote-content]')) {
           foundQuote = true;
@@ -203,6 +206,7 @@ function EmailViewComponent() {
     for (const node of Array.from(el.childNodes)) {
       if (node instanceof HTMLElement) {
         if (node.hasAttribute('data-quote-content') ||
+            node.hasAttribute('data-signature-content') ||
             node.getAttribute('contenteditable') === 'false' ||
             node.querySelector?.('[data-quote-content]')) {
           break;
@@ -416,6 +420,7 @@ function EmailViewComponent() {
 
   // contentEditable 에디터 동기화: replyBody 또는 인용문 변경 시 DOM 갱신
   const showReplyQuote = (isReplying || isForwarding) && !!replyQuoteHtmlRef.current;
+  const currentSignature = currentAccountId ? accountSignatures[currentAccountId] : '';
   useEffect(() => {
     const el = replyEditorRef.current;
     if (!el) return;
@@ -427,6 +432,9 @@ function EmailViewComponent() {
     const escaped = replyBody
       ? replyBody.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
       : '<br>';
+    const signaturePreview = currentSignature
+      ? `<div contenteditable="false" data-signature-content style="margin-top:8px;opacity:0.6;user-select:none;font-size:12px;color:var(--muted-foreground);">${currentSignature.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')}</div>`
+      : '';
     const quoteHtml = showReplyQuote
       ? `<div contenteditable="false" data-quote-content style="border-top:1px solid var(--border);margin-top:8px;padding-top:8px;opacity:0.8;user-select:none;">
           <div style="font-size:12px;color:var(--muted-foreground);margin-bottom:4px;">
@@ -435,8 +443,8 @@ function EmailViewComponent() {
           <div class="email-content">${replyQuoteHtmlRef.current}</div>
         </div>`
       : '';
-    el.innerHTML = `<div data-user-content>${escaped}</div>${quoteHtml}`;
-  }, [replyBody, showReplyQuote, isForwarding, isReplying]);
+    el.innerHTML = `<div data-user-content>${escaped}</div>${signaturePreview}${quoteHtml}`;
+  }, [replyBody, showReplyQuote, isForwarding, isReplying, replyQuoteVersion, currentSignature]);
 
   useEffect(() => {
     if (!isComposeOnly) return;
@@ -782,7 +790,10 @@ function EmailViewComponent() {
     setIsReplying(true);
     setIsForwarding(false);
     replyQuoteRef.current = quoteText;
-    replyQuoteHtmlRef.current = selectedEmail.bodyHtml || '';
+    replyQuoteHtmlRef.current = selectedEmail.bodyHtml
+      || (selectedEmail.body || selectedEmail.snippet || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+      || '';
+    setReplyQuoteVersion((v) => v + 1);
     initialDraftKeyRef.current = buildDraftKey(
       sanitizeAddresses(nextTo),
       sanitizeAddresses(nextCc),
@@ -830,7 +841,10 @@ function EmailViewComponent() {
     setIsReplying(true);
     setIsForwarding(false);
     replyQuoteRef.current = quoteText;
-    replyQuoteHtmlRef.current = selectedEmail.bodyHtml || '';
+    replyQuoteHtmlRef.current = selectedEmail.bodyHtml
+      || (selectedEmail.body || selectedEmail.snippet || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+      || '';
+    setReplyQuoteVersion((v) => v + 1);
     initialDraftKeyRef.current = buildDraftKey(
       sanitizeAddresses(nextTo),
       sanitizeAddresses(nextCc),
@@ -860,7 +874,10 @@ function EmailViewComponent() {
     setIsReplying(false);
     setIsForwarding(true);
     replyQuoteRef.current = quoteText;
-    replyQuoteHtmlRef.current = selectedEmail.bodyHtml || '';
+    replyQuoteHtmlRef.current = selectedEmail.bodyHtml
+      || (selectedEmail.body || selectedEmail.snippet || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
+      || '';
+    setReplyQuoteVersion((v) => v + 1);
 
     // 원본 메일 첨부파일 자동 첨부
     const fwdAttachments = selectedEmail.attachments;
@@ -1671,6 +1688,12 @@ function EmailViewComponent() {
         userHtml = getEditorUserHtml(editorEl);
       }
 
+      // 서명 생성
+      const signature = currentAccountId ? accountSignatures[currentAccountId] : '';
+      const signatureHtml = signature
+        ? `<br><div style="color:var(--muted-foreground,#888);">${escapeHtml(signature).replace(/\n/g, '<br>')}</div>`
+        : '';
+
       // 원본 메일에 HTML 본문(인라인 이미지 포함)이 있으면 HTML로 전송
       let finalBody = latestBody;
       let isHtml = false;
@@ -1683,16 +1706,19 @@ function EmailViewComponent() {
         const sender = escapeHtml(getSenderDisplayName(selectedEmail.from.name, selectedEmail.from.email));
 
         if (isReplying) {
-          finalBody = `<div>${userContent}</div><br><div>${dateStr} ${sender} 작성:</div><blockquote style="margin:0 0 0 0.8ex;border-left:1px solid #ccc;padding-left:1ex;">${replyQuoteHtmlRef.current}</blockquote>`;
+          finalBody = `<div>${userContent}</div>${signatureHtml}<br><div>${dateStr} ${sender} 작성:</div><blockquote style="margin:0 0 0 0.8ex;border-left:1px solid #ccc;padding-left:1ex;">${replyQuoteHtmlRef.current}</blockquote>`;
         } else if (isForwarding) {
           const toLine = escapeHtml(selectedEmail.to.map((t) => formatAddressLabel(t.name, t.email)).join(', '));
-          finalBody = `<div>${userContent}</div><br><div>---------- 전달된 메시지 ----------</div><div>보낸 사람: ${sender}</div><div>날짜: ${dateStr}</div><div>제목: ${escapeHtml(selectedEmail.subject)}</div><div>받는 사람: ${toLine}</div><br>${replyQuoteHtmlRef.current}`;
+          finalBody = `<div>${userContent}</div>${signatureHtml}<br><div>---------- 전달된 메시지 ----------</div><div>보낸 사람: ${sender}</div><div>날짜: ${dateStr}</div><div>제목: ${escapeHtml(selectedEmail.subject)}</div><div>받는 사람: ${toLine}</div><br>${replyQuoteHtmlRef.current}`;
         }
         isHtml = true;
       } else if (hasInlineImages) {
         // 새 메일 작성 또는 인용문 없는 경우에도 인라인 이미지가 있으면 HTML로 전송
-        finalBody = userHtml;
+        finalBody = userHtml + signatureHtml;
         isHtml = true;
+      } else if (signature) {
+        // 텍스트 전용 (인라인 이미지 없고, 인용문 없는 경우)
+        finalBody = latestBody + '\n\n' + signature;
       }
 
       const draft: EmailDraft = {
@@ -1900,11 +1926,24 @@ function EmailViewComponent() {
     const attachments =
       selectedEmail.attachments?.filter((att) => !(att.mimeType.startsWith('image/') && selectedEmail.inlineImageIds?.includes(att.id))) || [];
     if (attachments.length === 0) return;
+
+    // 폴더를 한번만 선택
+    const folderPath = await window.electronAPI.selectFolder(downloadFolder || undefined);
+    if (!folderPath) return;
+
     setIsDownloadingAll(true);
     try {
       for (const attachment of attachments) {
-        await handleDownloadAttachment(attachment.id, attachment.filename);
+        await window.electronAPI.saveAttachmentToFolder(
+          currentAccountId,
+          selectedEmail.id,
+          attachment.id,
+          attachment.filename,
+          folderPath
+        );
       }
+    } catch (error) {
+      console.error('Failed to download attachments:', error);
     } finally {
       setIsDownloadingAll(false);
     }

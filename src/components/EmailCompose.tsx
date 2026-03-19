@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { X, Send, Loader2 } from 'lucide-react';
 import { useAccountsStore } from '@/stores/accounts';
 import { useEmailsStore } from '@/stores/emails';
+import { usePreferencesStore } from '@/stores/preferences';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -15,6 +16,7 @@ interface EmailComposeProps {
 export function EmailCompose({ onClose }: EmailComposeProps) {
   const { currentAccountId } = useAccountsStore();
   const { sendEmail, isLoading } = useEmailsStore();
+  const accountSignatures = usePreferencesStore((s) => s.accountSignatures);
 
   const [to, setTo] = useState('');
   const [cc, setCc] = useState('');
@@ -25,11 +27,14 @@ export function EmailCompose({ onClose }: EmailComposeProps) {
     e.preventDefault();
     if (!currentAccountId || !to.trim()) return;
 
+    const signature = currentAccountId ? accountSignatures[currentAccountId] : '';
+    const finalBody = signature ? `${body}\n\n${signature}` : body;
+
     const draft: EmailDraft = {
       to: to.split(',').map((email) => email.trim()),
       cc: cc ? cc.split(',').map((email) => email.trim()) : undefined,
       subject,
-      body,
+      body: finalBody,
     };
 
     try {

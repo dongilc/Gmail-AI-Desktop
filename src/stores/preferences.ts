@@ -46,6 +46,9 @@ interface PreferencesState {
   setAutoRefreshInterval: (value: number) => void;
   downloadFolder: string;
   setDownloadFolder: (value: string) => void;
+  accountSignatures: Record<string, string>;
+  setAccountSignature: (accountId: string, signature: string) => void;
+  removeAccountSignature: (accountId: string) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -93,10 +96,21 @@ export const usePreferencesStore = create<PreferencesState>()(
       setAutoRefreshInterval: (value) => set({ autoRefreshInterval: value }),
       downloadFolder: '',
       setDownloadFolder: (value) => set({ downloadFolder: value }),
+      accountSignatures: {},
+      setAccountSignature: (accountId, signature) =>
+        set((state) => ({
+          accountSignatures: { ...state.accountSignatures, [accountId]: signature },
+        })),
+      removeAccountSignature: (accountId) =>
+        set((state) => {
+          const next = { ...state.accountSignatures };
+          delete next[accountId];
+          return { accountSignatures: next };
+        }),
     }),
     {
       name: 'gmail-desktop-preferences',
-      version: 12,
+      version: 13,
       migrate: (state: any, _version) => {
         if (!state) return state;
         let next = { ...state };
@@ -144,6 +158,9 @@ export const usePreferencesStore = create<PreferencesState>()(
         }
         if (next.downloadFolder === undefined) {
           next.downloadFolder = '';
+        }
+        if (!next.accountSignatures || typeof next.accountSignatures !== 'object') {
+          next.accountSignatures = {};
         }
         return next;
       },
