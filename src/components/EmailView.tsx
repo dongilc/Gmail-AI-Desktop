@@ -444,7 +444,7 @@ function EmailViewComponent() {
         </div>`
       : '';
     el.innerHTML = `<div data-user-content>${escaped}</div>${signaturePreview}${quoteHtml}`;
-  }, [replyBody, showReplyQuote, isForwarding, isReplying, replyQuoteVersion, currentSignature]);
+  }, [replyBody, showReplyQuote, isForwarding, isReplying, isComposing, replyQuoteVersion, currentSignature]);
 
   useEffect(() => {
     if (!isComposeOnly) return;
