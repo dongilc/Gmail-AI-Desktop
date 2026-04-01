@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, memo, useCallback, startTransition } from 'react';
-import { Reply, ReplyAll, Forward, Star, AlertCircle, Trash2, ShieldAlert, ListPlus, Loader2, Send, X, Paperclip, Image, Download, FileText, FileImage, FileArchive, File, Eye, Printer, FileDown, Sun, Moon, Sparkles, Languages, ExternalLink, Minimize2 } from 'lucide-react';
+import { Reply, ReplyAll, Forward, Star, AlertCircle, Trash2, ShieldAlert, ListPlus, Loader2, Send, X, Paperclip, Image, Download, FileText, FileImage, FileArchive, File, Eye, Printer, FileDown, Sun, Moon, Sparkles, Languages, ExternalLink, Minimize2, FolderOpen } from 'lucide-react';
 import { useAccountsStore } from '@/stores/accounts';
 import { useEmailsStore } from '@/stores/emails';
 import { shallow } from 'zustand/shallow';
@@ -21,6 +21,7 @@ import {
 import { Resizer } from './ui/resizer';
 import { PdfViewer } from './PdfViewer';
 import { ContactInput } from './ContactInput';
+import { useSendQueueStore } from '@/stores/send-queue';
 import {
   formatFullDate,
   formatTime,
@@ -52,7 +53,13 @@ function CollapsibleAddressList({
 
   return (
     <div className={cn('text-xs text-muted-foreground', className)}>
-      {label}: {visibleAddresses.map((t) => formatAddressLabel(t.name, t.email)).join(', ')}
+      {label}:{' '}
+      {visibleAddresses.map((t, i) => (
+        <span key={t.email + i}>
+          {i > 0 && <span className="mx-0.5 text-muted-foreground/50">;</span>}
+          <span className="text-foreground/80">{formatAddressLabel(t.name, t.email)}</span>
+        </span>
+      ))}
       {shouldCollapse && !expanded && (
         <button
           type="button"
@@ -157,6 +164,7 @@ function EmailViewComponent() {
   const [isTranslating, setIsTranslating] = useState(false);
   const [showTranslated, setShowTranslated] = useState(false);
   const [isDownloadingAll, setIsDownloadingAll] = useState(false);
+  const [lastDownloadFolder, setLastDownloadFolder] = useState<string | null>(null);
   const translationCacheRef = useRef<Map<string, string>>(new Map());
   const replyEditorRef = useRef<HTMLDivElement>(null);
   const editorInternalUpdate = useRef(false); // 내부 입력 중 외부 sync 방지
@@ -221,6 +229,10 @@ function EmailViewComponent() {
   }, []);
 
   const [hasTextSelection, setHasTextSelection] = useState(false);
+  const [partialTranslateText, setPartialTranslateText] = useState('');
+  const [partialTranslateResult, setPartialTranslateResult] = useState('');
+  const [isPartialTranslating, setIsPartialTranslating] = useState(false);
+  const [showPartialTranslate, setShowPartialTranslate] = useState(false);
   const bodyCacheRef = useRef<
     Map<
       string,
@@ -465,7 +477,7 @@ function EmailViewComponent() {
     setTranslatedBody('');
     setShowTranslated(false);
     setIsTranslating(false);
-  }, [isComposeOnly]);
+  }, [isComposeOnly, composeTo]);
 
   // 3초 후 자동 읽음 처리
   useEffect(() => {
@@ -1288,15 +1300,18 @@ function EmailViewComponent() {
     }
   };
 
-  const buildTranslatePrompt = (body: string) =>
-    [
-      'Translate the following email body to Korean.',
+  const buildTranslatePrompt = (body: string) => {
+    const isKorean = detectedBodyLanguage === '\uD55C\uAD6D\uC5B4';
+    const targetLang = isKorean ? 'English' : 'Korean';
+    return [
+      `Translate the following email body to ${targetLang}.`,
       'Keep line breaks and bullet points.',
       'Do not add any preface or commentary.',
       'Return only the translated body.',
       '',
       body,
     ].join('\n');
+  };
 
   const handleToggleTranslate = async () => {
     if (!window.electronAPI?.aiGenerate || !selectedEmail) return;
@@ -1334,6 +1349,41 @@ function EmailViewComponent() {
       decrementPending();
       addCompleted();
       setIsTranslating(false);
+    }
+  };
+
+  const handlePartialTranslate = async () => {
+    if (!window.electronAPI?.aiGenerate) return;
+    const selection = window.getSelection()?.toString().trim();
+    if (!selection) return;
+
+    setPartialTranslateText(selection);
+    setPartialTranslateResult('');
+    setShowPartialTranslate(true);
+    setIsPartialTranslating(true);
+    incrementPending();
+
+    try {
+      const isKorean = /[\uAC00-\uD7A3]/.test(selection);
+      const targetLang = isKorean ? 'English' : 'Korean';
+      const prompt = [
+        `Translate the following text to ${targetLang}.`,
+        'Do not add any preface or commentary.',
+        'Return only the translated text.',
+        '',
+        selection,
+      ].join('\n');
+      const result = await window.electronAPI.aiGenerate({ prompt });
+      const raw = result?.text?.trim() || '';
+      setPartialTranslateResult(raw || '번역 실패');
+      addTokens(result?.promptTokens || 0, result?.evalTokens || 0);
+    } catch (error) {
+      console.error('Failed to translate selection:', error);
+      setPartialTranslateResult('번역 실패');
+    } finally {
+      decrementPending();
+      addCompleted();
+      setIsPartialTranslating(false);
     }
   };
 
@@ -1733,17 +1783,33 @@ function EmailViewComponent() {
         attachments: attachments.length > 0 ? attachments : undefined,
       };
 
-      await sendEmail(currentAccountId, draft);
-      if (draftId) {
-        try {
-          await window.electronAPI.deleteDraft(currentAccountId, draftId);
-        } catch (deleteError) {
-          console.error('Failed to delete draft:', deleteError);
-        }
-      }
-      if (isDraftEmail && selectedEmail) {
-        removeEmail(currentAccountId, selectedEmail.id);
-      }
+      // 큐에 추가 (1분 후 실제 전송)
+      const capturedDraftId = draftId;
+      const capturedIsDraftEmail = isDraftEmail;
+      const capturedEmailId = selectedEmail?.id || null;
+
+      useSendQueueStore.getState().enqueue(
+        currentAccountId,
+        draft,
+        capturedDraftId,
+        capturedIsDraftEmail,
+        capturedEmailId,
+        async (acctId, d, dId, isDraft, emailId) => {
+          await sendEmail(acctId, d);
+          if (dId) {
+            try {
+              await window.electronAPI.deleteDraft(acctId, dId);
+            } catch (deleteError) {
+              console.error('Failed to delete draft:', deleteError);
+            }
+          }
+          if (isDraft && emailId) {
+            removeEmail(acctId, emailId);
+          }
+        },
+      );
+
+      // UI 즉시 닫기
       if (isComposeOnly) {
         setComposing(false);
       }
@@ -1778,8 +1844,7 @@ function EmailViewComponent() {
       selectedEmail &&
         !isDraftEmail &&
         !isComposing &&
-        canTranslate &&
-        detectedBodyLanguage !== '\uD55C\uAD6D\uC5B4'
+        canTranslate
     );
 
   const actionButtons = selectedEmail && !isDraftEmail && !isComposing ? (
@@ -1807,7 +1872,7 @@ function EmailViewComponent() {
               </Button>
             </TooltipTrigger>
             <TooltipContent>
-              {showTranslated ? '\uC6D0\uBB38 \uBCF4\uAE30' : '\uBC88\uC5ED \uBCF4\uAE30'}
+              {showTranslated ? '원문 보기' : detectedBodyLanguage === '한국어' ? '영어로 번역' : '한국어로 번역'}
             </TooltipContent>
           </Tooltip>
         )}
@@ -1931,6 +1996,7 @@ function EmailViewComponent() {
     const folderPath = await window.electronAPI.selectFolder(downloadFolder || undefined);
     if (!folderPath) return;
 
+    setLastDownloadFolder(folderPath);
     setIsDownloadingAll(true);
     try {
       for (const attachment of attachments) {
@@ -1946,6 +2012,13 @@ function EmailViewComponent() {
       console.error('Failed to download attachments:', error);
     } finally {
       setIsDownloadingAll(false);
+    }
+  };
+
+  const handleOpenDownloadFolder = () => {
+    const folder = lastDownloadFolder || downloadFolder;
+    if (folder) {
+      window.electronAPI.openPath(folder);
     }
   };
 
@@ -2168,16 +2241,29 @@ function EmailViewComponent() {
                   첨부파일 ({selectedEmail.attachments.filter(att => !(att.mimeType.startsWith('image/') && selectedEmail.inlineImageIds?.includes(att.id))).length})
                 </span>
               </div>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-7 px-2"
-                onClick={handleDownloadAllAttachments}
-                disabled={isDownloadingAll}
-              >
-                <Download className="mr-1 h-3 w-3" />
-                {isDownloadingAll ? '다운로드 중...' : '전체 다운로드'}
-              </Button>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-7 px-2"
+                  onClick={handleDownloadAllAttachments}
+                  disabled={isDownloadingAll}
+                >
+                  <Download className="mr-1 h-3 w-3" />
+                  {isDownloadingAll ? '다운로드 중...' : '전체 다운로드'}
+                </Button>
+                {(lastDownloadFolder || downloadFolder) && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-7 px-2"
+                    onClick={handleOpenDownloadFolder}
+                  >
+                    <FolderOpen className="mr-1 h-3 w-3" />
+                    {'저장폴더 열기'}
+                  </Button>
+                )}
+              </div>
             </div>
             <div className="flex flex-wrap gap-2">
               {selectedEmail.attachments
@@ -2412,6 +2498,10 @@ function EmailViewComponent() {
               }}>
                 <File className="mr-2 h-4 w-4" />
                 선택 텍스트 복사
+              </ContextMenuItem>
+              <ContextMenuItem onClick={handlePartialTranslate} disabled={!window.getSelection()?.toString().trim()}>
+                <Languages className="mr-2 h-4 w-4" />
+                선택 번역
               </ContextMenuItem>
               {contextHasImage && (
                 <ContextMenuItem onClick={async () => {
@@ -3047,6 +3137,54 @@ function EmailViewComponent() {
                   <p>이 파일 형식은 미리보기를 지원하지 않습니다.</p>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {/* 부분 번역 팝업 */}
+      {showPartialTranslate && (
+        <div className="fixed inset-0 bg-black/30 z-[200] flex items-center justify-center" onClick={() => setShowPartialTranslate(false)}>
+          <div className="bg-background border rounded-lg shadow-2xl w-full max-w-lg mx-4 max-h-[60vh] flex flex-col" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center justify-between p-3 border-b">
+              <h3 className="text-sm font-medium flex items-center gap-1.5">
+                <Languages className="h-4 w-4" />
+                {'선택 번역'}
+              </h3>
+              <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => setShowPartialTranslate(false)}>
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
+            <div className="p-4 overflow-y-auto space-y-3">
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">{'원문'}</p>
+                <pre className="whitespace-pre-wrap font-sans text-sm bg-muted/50 p-2 rounded">{partialTranslateText}</pre>
+              </div>
+              <div>
+                <p className="text-xs text-muted-foreground mb-1">{'번역'}</p>
+                {isPartialTranslating ? (
+                  <div className="flex items-center gap-2 p-2">
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    <span className="text-sm text-muted-foreground">{'번역 중...'}</span>
+                  </div>
+                ) : (
+                  <pre className="whitespace-pre-wrap font-sans text-sm bg-muted/50 p-2 rounded">{partialTranslateResult}</pre>
+                )}
+              </div>
+            </div>
+            <div className="p-3 border-t flex justify-end gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => {
+                  navigator.clipboard.writeText(partialTranslateResult);
+                }}
+                disabled={isPartialTranslating || !partialTranslateResult}
+              >
+                {'복사'}
+              </Button>
+              <Button variant="ghost" size="sm" onClick={() => setShowPartialTranslate(false)}>
+                {'닫기'}
+              </Button>
             </div>
           </div>
         </div>

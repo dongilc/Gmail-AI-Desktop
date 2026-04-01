@@ -1,4 +1,4 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, Menu } from 'electron';
 import path from 'path';
 import fs from 'fs/promises';
 import { execFile } from 'child_process';
@@ -617,6 +617,37 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // 커스텀 메뉴 설정
+  const template: Electron.MenuItemConstructorOptions[] = [
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'About Gmail Desktop',
+          click: () => {
+            dialog.showMessageBox({
+              type: 'info',
+              title: 'About Gmail Desktop',
+              message: 'Gmail Desktop',
+              detail: `버전: ${app.getVersion()}\n\nElectron + React + TypeScript\nGmail API, Calendar API, Tasks API`,
+            });
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Learn More',
+          click: () => shell.openExternal('https://github.com/dongilc/Gmail-AI-Desktop'),
+        },
+      ],
+    },
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+
   createWindow();
 
   app.on('activate', () => {
@@ -639,6 +670,10 @@ ipcMain.handle('shell:open-external', async (_, url: string) => {
   if (isSafeExternalUrl(url)) {
     await shell.openExternal(url);
   }
+});
+
+ipcMain.handle('shell:open-path', async (_, folderPath: string) => {
+  await shell.openPath(folderPath);
 });
 
 // Auth handlers
@@ -1454,6 +1489,10 @@ ipcMain.handle('app:select-folder', async (_, defaultPath?: string) => {
 
 ipcMain.handle('app:get-downloads-path', async () => {
   return app.getPath('downloads');
+});
+
+ipcMain.handle('app:get-version', () => {
+  return app.getVersion();
 });
 
 // Print / PDF handlers

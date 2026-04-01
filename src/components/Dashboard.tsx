@@ -18,6 +18,8 @@ import { ContactsDialog } from './ContactsDialog';
 import { Resizer } from './ui/resizer';
 import { AIStatus } from './AIStatus';
 import { AIMailRecommendations } from './AIMailRecommendations';
+import { SendQueue } from './SendQueue';
+import { HelpDialog } from './HelpDialog';
 import { useAutoRefresh } from '@/hooks/useAutoRefresh';
 
 export function Dashboard() {
@@ -114,6 +116,7 @@ export function Dashboard() {
         <div className="flex items-center gap-4 no-drag">
           <AIStatus />
           <ContactsDialog />
+          <HelpDialog />
           <SettingsDialog />
         </div>
       </header>
@@ -178,6 +181,9 @@ export function Dashboard() {
           </div>
         </div>
       </div>
+
+      {/* Send queue */}
+      <SendQueue />
 
       {/* Quick add todo modal */}
       <QuickAddTodo />

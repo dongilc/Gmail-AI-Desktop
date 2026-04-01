@@ -1334,11 +1334,16 @@ function ShortcutsTab() {
 
 
 function AboutTab() {
+  const [appVersion, setAppVersion] = useState('');
+  useEffect(() => {
+    window.electronAPI?.getAppVersion?.().then((v: string) => setAppVersion(v || ''));
+  }, []);
+
   return (
     <div className="space-y-4">
       <div className="text-center py-8">
         <h3 className="text-2xl font-bold">Gmail Desktop</h3>
-        <p className="text-muted-foreground mt-1">{'\uBC84\uC804 1.0.0'}</p>
+        <p className="text-muted-foreground mt-1">{'버전 '}{appVersion || '...'}</p>
       </div>
 
       <div className="space-y-2 text-sm text-muted-foreground">
