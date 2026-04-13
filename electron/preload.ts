@@ -6,6 +6,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
   openPath: (folderPath: string) => ipcRenderer.invoke('shell:open-path', folderPath),
 
+  // App / timezone
+  getAppTimezone: () => ipcRenderer.invoke('app:get-timezone'),
+  setAppTimezone: (tz: string) => ipcRenderer.invoke('app:set-timezone', tz),
+  getSystemTimezone: () => ipcRenderer.invoke('app:get-system-timezone'),
+  relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
+
   // Auth
   login: () => ipcRenderer.invoke('auth:login'),
   logout: (accountId: string) => ipcRenderer.invoke('auth:logout', accountId),

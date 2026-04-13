@@ -1,7 +1,21 @@
 import { app, BrowserWindow, ipcMain, shell, dialog, Menu } from 'electron';
 import path from 'path';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import { execFile } from 'child_process';
+
+// Load user timezone override BEFORE any Date operations so V8 uses it.
+try {
+  const tzFile = path.join(app.getPath('userData'), 'timezone.json');
+  if (fsSync.existsSync(tzFile)) {
+    const data = JSON.parse(fsSync.readFileSync(tzFile, 'utf-8'));
+    if (data?.timezone && data.timezone !== 'auto') {
+      process.env.TZ = data.timezone;
+    }
+  }
+} catch {
+  // ignore — fall back to system timezone
+}
 import { promisify } from 'util';
 import { GoogleAuth } from './google-auth';
 import { GmailService } from './services/gmail-service';
@@ -664,6 +678,38 @@ app.on('window-all-closed', () => {
 });
 
 // ===== IPC Handlers =====
+
+// App / timezone
+const getTimezoneFilePath = () => path.join(app.getPath('userData'), 'timezone.json');
+
+ipcMain.handle('app:get-timezone', async () => {
+  try {
+    const raw = await fs.readFile(getTimezoneFilePath(), 'utf-8');
+    const data = JSON.parse(raw);
+    return typeof data?.timezone === 'string' ? data.timezone : 'auto';
+  } catch {
+    return 'auto';
+  }
+});
+
+ipcMain.handle('app:set-timezone', async (_e, timezone: string) => {
+  const value = typeof timezone === 'string' && timezone.length > 0 ? timezone : 'auto';
+  await fs.writeFile(getTimezoneFilePath(), JSON.stringify({ timezone: value }), 'utf-8');
+  return value;
+});
+
+ipcMain.handle('app:relaunch', () => {
+  app.relaunch();
+  app.exit(0);
+});
+
+ipcMain.handle('app:get-system-timezone', () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+});
 
 // Shell handlers
 ipcMain.handle('shell:open-external', async (_, url: string) => {
