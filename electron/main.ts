@@ -1,7 +1,21 @@
-import { app, BrowserWindow, ipcMain, shell, dialog } from 'electron';
+import { app, BrowserWindow, ipcMain, shell, dialog, Menu } from 'electron';
 import path from 'path';
 import fs from 'fs/promises';
+import fsSync from 'fs';
 import { execFile } from 'child_process';
+
+// Load user timezone override BEFORE any Date operations so V8 uses it.
+try {
+  const tzFile = path.join(app.getPath('userData'), 'timezone.json');
+  if (fsSync.existsSync(tzFile)) {
+    const data = JSON.parse(fsSync.readFileSync(tzFile, 'utf-8'));
+    if (data?.timezone && data.timezone !== 'auto') {
+      process.env.TZ = data.timezone;
+    }
+  }
+} catch {
+  // ignore — fall back to system timezone
+}
 import { promisify } from 'util';
 import { GoogleAuth } from './google-auth';
 import { GmailService } from './services/gmail-service';
@@ -617,6 +631,37 @@ function createWindow() {
 }
 
 app.whenReady().then(() => {
+  // 커스텀 메뉴 설정
+  const template: Electron.MenuItemConstructorOptions[] = [
+    { role: 'fileMenu' },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'About Gmail Desktop',
+          click: () => {
+            dialog.showMessageBox({
+              type: 'info',
+              title: 'About Gmail Desktop',
+              message: 'Gmail Desktop',
+              detail: `버전: ${app.getVersion()}\n\nElectron + React + TypeScript\nGmail API, Calendar API, Tasks API`,
+            });
+          },
+        },
+        { type: 'separator' },
+        {
+          label: 'Learn More',
+          click: () => shell.openExternal('https://github.com/dongilc/Gmail-AI-Desktop'),
+        },
+      ],
+    },
+  ];
+  const menu = Menu.buildFromTemplate(template);
+  Menu.setApplicationMenu(menu);
+
   createWindow();
 
   app.on('activate', () => {
@@ -634,11 +679,47 @@ app.on('window-all-closed', () => {
 
 // ===== IPC Handlers =====
 
+// App / timezone
+const getTimezoneFilePath = () => path.join(app.getPath('userData'), 'timezone.json');
+
+ipcMain.handle('app:get-timezone', async () => {
+  try {
+    const raw = await fs.readFile(getTimezoneFilePath(), 'utf-8');
+    const data = JSON.parse(raw);
+    return typeof data?.timezone === 'string' ? data.timezone : 'auto';
+  } catch {
+    return 'auto';
+  }
+});
+
+ipcMain.handle('app:set-timezone', async (_e, timezone: string) => {
+  const value = typeof timezone === 'string' && timezone.length > 0 ? timezone : 'auto';
+  await fs.writeFile(getTimezoneFilePath(), JSON.stringify({ timezone: value }), 'utf-8');
+  return value;
+});
+
+ipcMain.handle('app:relaunch', () => {
+  app.relaunch();
+  app.exit(0);
+});
+
+ipcMain.handle('app:get-system-timezone', () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+});
+
 // Shell handlers
 ipcMain.handle('shell:open-external', async (_, url: string) => {
   if (isSafeExternalUrl(url)) {
     await shell.openExternal(url);
   }
+});
+
+ipcMain.handle('shell:open-path', async (_, folderPath: string) => {
+  await shell.openPath(folderPath);
 });
 
 // Auth handlers
@@ -1454,6 +1535,10 @@ ipcMain.handle('app:select-folder', async (_, defaultPath?: string) => {
 
 ipcMain.handle('app:get-downloads-path', async () => {
   return app.getPath('downloads');
+});
+
+ipcMain.handle('app:get-version', () => {
+  return app.getVersion();
 });
 
 // Print / PDF handlers

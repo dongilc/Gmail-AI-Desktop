@@ -4,6 +4,13 @@ import { contextBridge, ipcRenderer, shell } from 'electron';
 contextBridge.exposeInMainWorld('electronAPI', {
   // 외부 링크 열기
   openExternal: (url: string) => ipcRenderer.invoke('shell:open-external', url),
+  openPath: (folderPath: string) => ipcRenderer.invoke('shell:open-path', folderPath),
+
+  // App / timezone
+  getAppTimezone: () => ipcRenderer.invoke('app:get-timezone'),
+  setAppTimezone: (tz: string) => ipcRenderer.invoke('app:set-timezone', tz),
+  getSystemTimezone: () => ipcRenderer.invoke('app:get-system-timezone'),
+  relaunchApp: () => ipcRenderer.invoke('app:relaunch'),
 
   // Auth
   login: () => ipcRenderer.invoke('auth:login'),
@@ -99,6 +106,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // System
   selectFolder: (defaultPath?: string) => ipcRenderer.invoke('app:select-folder', defaultPath),
   getDownloadsPath: () => ipcRenderer.invoke('app:get-downloads-path'),
+  getAppVersion: () => ipcRenderer.invoke('app:get-version'),
 });
 
 // Type definitions for the exposed API

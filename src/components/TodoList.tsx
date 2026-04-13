@@ -191,19 +191,30 @@ export function TodoList() {
     setDeleteTaskTarget(task);
   };
 
-  const handleDragStart = (taskId: string) => {
+  const [dragOverPosition, setDragOverPosition] = useState<'above' | 'below' | null>(null);
+
+  const handleDragStart = (e: React.DragEvent, taskId: string) => {
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', taskId);
     setDraggedTaskId(taskId);
   };
 
   const handleDragOver = (e: React.DragEvent, taskId: string) => {
     e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
     if (draggedTaskId && draggedTaskId !== taskId) {
+      // 마우스 위치로 위/아래 판단
+      const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+      const midY = rect.top + rect.height / 2;
+      const position = e.clientY < midY ? 'above' : 'below';
       setDragOverTaskId(taskId);
+      setDragOverPosition(position);
     }
   };
 
   const handleDragLeave = () => {
     setDragOverTaskId(null);
+    setDragOverPosition(null);
   };
 
   const handleDrop = async (e: React.DragEvent, targetTaskId: string) => {
@@ -211,6 +222,7 @@ export function TodoList() {
     if (!draggedTaskId || draggedTaskId === targetTaskId || !currentAccountId || !selectedTaskListId) {
       setDraggedTaskId(null);
       setDragOverTaskId(null);
+      setDragOverPosition(null);
       return;
     }
 
@@ -220,20 +232,34 @@ export function TodoList() {
     if (draggedIndex === -1 || targetIndex === -1) {
       setDraggedTaskId(null);
       setDragOverTaskId(null);
+      setDragOverPosition(null);
       return;
     }
+
+    // 마우스 위치로 위/아래 판단
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
+    const midY = rect.top + rect.height / 2;
+    const dropBelow = e.clientY >= midY;
 
     // 로컬 상태 먼저 업데이트 (즉각적인 피드백)
     const newOrder = [...incompleteTasks];
     const [removed] = newOrder.splice(draggedIndex, 1);
 
-    // 드래그한 항목이 타겟보다 앞에 있었으면 인덱스 조정 필요
-    const adjustedTargetIndex = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex;
-    newOrder.splice(adjustedTargetIndex, 0, removed);
+    // 삽입 위치 계산: 드래그 항목 제거 후의 인덱스 기준
+    let insertIndex: number;
+    if (dropBelow) {
+      // 타겟 아래에 놓기
+      insertIndex = draggedIndex < targetIndex ? targetIndex : targetIndex + 1;
+    } else {
+      // 타겟 위에 놓기
+      insertIndex = draggedIndex < targetIndex ? targetIndex - 1 : targetIndex;
+    }
+    insertIndex = Math.max(0, Math.min(newOrder.length, insertIndex));
+    newOrder.splice(insertIndex, 0, removed);
     reorderTasks(selectedTaskListId, [...newOrder, ...completedTasks]);
 
     // API 호출 - 타겟 위치 바로 앞 태스크의 ID를 전달
-    const previousTaskId = adjustedTargetIndex > 0 ? newOrder[adjustedTargetIndex - 1]?.id : undefined;
+    const previousTaskId = insertIndex > 0 ? newOrder[insertIndex - 1]?.id : undefined;
     try {
       await moveTask(currentAccountId, selectedTaskListId, draggedTaskId, previousTaskId);
     } catch (error) {
@@ -243,11 +269,13 @@ export function TodoList() {
 
     setDraggedTaskId(null);
     setDragOverTaskId(null);
+    setDragOverPosition(null);
   };
 
   const handleDragEnd = () => {
     setDraggedTaskId(null);
     setDragOverTaskId(null);
+    setDragOverPosition(null);
   };
 
   return (
@@ -332,7 +360,8 @@ export function TodoList() {
                   onDelete={() => requestDelete(task)}
                   isDragging={draggedTaskId === task.id}
                   isDragOver={dragOverTaskId === task.id}
-                  onDragStart={() => handleDragStart(task.id)}
+                  dragOverPosition={dragOverTaskId === task.id ? dragOverPosition : null}
+                  onDragStart={(e) => handleDragStart(e, task.id)}
                   onDragOver={(e) => handleDragOver(e, task.id)}
                   onDragLeave={handleDragLeave}
                   onDrop={(e) => handleDrop(e, task.id)}
@@ -478,6 +507,7 @@ function TaskItem({
   onDelete,
   isDragging = false,
   isDragOver = false,
+  dragOverPosition = null,
   onDragStart,
   onDragOver,
   onDragLeave,
@@ -492,7 +522,8 @@ function TaskItem({
   onDelete: () => void;
   isDragging?: boolean;
   isDragOver?: boolean;
-  onDragStart?: () => void;
+  dragOverPosition?: 'above' | 'below' | null;
+  onDragStart?: (e: React.DragEvent) => void;
   onDragOver?: (e: React.DragEvent) => void;
   onDragLeave?: () => void;
   onDrop?: (e: React.DragEvent) => void;
@@ -529,8 +560,13 @@ function TaskItem({
           onDrop={onDrop}
         >
           {/* 드롭 인디케이터 라인 */}
-          {isDragOver && (
+          {isDragOver && dragOverPosition === 'above' && (
             <div className="absolute -top-[2px] left-0 right-0 h-[4px] bg-primary rounded-full z-10 shadow-md animate-pulse">
+              <div className="absolute -left-1 -top-[4px] w-3 h-3 bg-primary rounded-full border-2 border-background" />
+            </div>
+          )}
+          {isDragOver && dragOverPosition === 'below' && (
+            <div className="absolute -bottom-[2px] left-0 right-0 h-[4px] bg-primary rounded-full z-10 shadow-md animate-pulse">
               <div className="absolute -left-1 -top-[4px] w-3 h-3 bg-primary rounded-full border-2 border-background" />
             </div>
           )}
@@ -578,7 +614,10 @@ function TaskItem({
           {!task.completed && onDragStart && (
             <div
               draggable
-              onDragStart={onDragStart}
+              onDragStart={(e) => {
+                e.stopPropagation();
+                onDragStart(e);
+              }}
               onDragEnd={onDragEnd}
               className="cursor-grab active:cursor-grabbing p-1 rounded hover:bg-muted opacity-0 group-hover:opacity-100 transition-opacity"
               title="드래그하여 순서 변경"

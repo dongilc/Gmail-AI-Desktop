@@ -379,6 +379,93 @@ function AccountsTab() {
 }
 
 
+const TIMEZONE_PRESETS: { value: string; label: string }[] = [
+  { value: 'auto', label: '자동 (시스템)' },
+  { value: 'Asia/Seoul', label: '서울 (KST, UTC+9)' },
+  { value: 'Asia/Tokyo', label: '도쿄 (JST, UTC+9)' },
+  { value: 'Asia/Shanghai', label: '상하이 (CST, UTC+8)' },
+  { value: 'Asia/Singapore', label: '싱가포르 (SGT, UTC+8)' },
+  { value: 'Asia/Kolkata', label: '인도 (IST, UTC+5:30)' },
+  { value: 'Europe/London', label: '런던 (GMT/BST)' },
+  { value: 'Europe/Paris', label: '파리 (CET/CEST)' },
+  { value: 'Europe/Berlin', label: '베를린 (CET/CEST)' },
+  { value: 'America/New_York', label: '뉴욕 (EST/EDT, UTC-5/-4)' },
+  { value: 'America/Chicago', label: '시카고 (CST/CDT, UTC-6/-5)' },
+  { value: 'America/Denver', label: '덴버 (MST/MDT, UTC-7/-6)' },
+  { value: 'America/Los_Angeles', label: 'LA (PST/PDT, UTC-8/-7)' },
+  { value: 'Pacific/Honolulu', label: '하와이 (HST, UTC-10)' },
+  { value: 'Australia/Sydney', label: '시드니 (AEST/AEDT)' },
+  { value: 'UTC', label: 'UTC' },
+];
+
+function TimezoneSection() {
+  const [savedTz, setSavedTz] = useState<string>('auto');
+  const [selectedTz, setSelectedTz] = useState<string>('auto');
+  const [systemTz, setSystemTz] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!window.electronAPI) return;
+    window.electronAPI.getAppTimezone?.().then((tz: string) => {
+      setSavedTz(tz || 'auto');
+      setSelectedTz(tz || 'auto');
+    });
+    window.electronAPI.getSystemTimezone?.().then((tz: string) => {
+      setSystemTz(tz || '');
+    });
+  }, []);
+
+  const isDirty = selectedTz !== savedTz;
+  const currentTz =
+    savedTz === 'auto'
+      ? systemTz || Intl.DateTimeFormat().resolvedOptions().timeZone
+      : savedTz;
+
+  const handleSaveAndRestart = async () => {
+    if (!window.electronAPI?.setAppTimezone) return;
+    setSaving(true);
+    try {
+      await window.electronAPI.setAppTimezone(selectedTz);
+      await window.electronAPI.relaunchApp?.();
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="p-3 border rounded-md space-y-3">
+      <div>
+        <div className="text-sm font-medium">시간대</div>
+        <div className="text-xs text-muted-foreground mt-0.5">
+          캘린더와 일정 표시에 사용되는 시간대입니다. 현재 적용: <span className="font-mono">{currentTz}</span>
+        </div>
+      </div>
+      <select
+        className="w-full h-9 rounded-md border border-input bg-background text-foreground px-3 text-sm [&>option]:bg-background [&>option]:text-foreground"
+        value={selectedTz}
+        onChange={(e) => setSelectedTz(e.target.value)}
+      >
+        {TIMEZONE_PRESETS.map((tz) => (
+          <option key={tz.value} value={tz.value}>
+            {tz.label}
+            {tz.value === 'auto' && systemTz ? ` — ${systemTz}` : ''}
+          </option>
+        ))}
+      </select>
+      {isDirty && (
+        <div className="flex items-center justify-between gap-2 pt-1">
+          <div className="text-xs text-muted-foreground">
+            변경 사항을 적용하려면 앱을 재시작해야 합니다.
+          </div>
+          <Button size="sm" onClick={handleSaveAndRestart} disabled={saving}>
+            {saving ? '재시작 중...' : '저장 및 재시작'}
+          </Button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 function GeneralTab() {
   const {
     showEmailSummary,
@@ -526,6 +613,7 @@ function GeneralTab() {
   return (
     <ScrollArea className="h-[350px]">
       <div className="space-y-4">
+        <TimezoneSection />
         <div className="flex items-center justify-between p-3 border rounded-md">
           <div>
             <div className="text-sm font-medium">{'\uC694\uC57D \uCE74\uB4DC \uD45C\uC2DC'}</div>
@@ -1334,11 +1422,16 @@ function ShortcutsTab() {
 
 
 function AboutTab() {
+  const [appVersion, setAppVersion] = useState('');
+  useEffect(() => {
+    window.electronAPI?.getAppVersion?.().then((v: string) => setAppVersion(v || ''));
+  }, []);
+
   return (
     <div className="space-y-4">
       <div className="text-center py-8">
         <h3 className="text-2xl font-bold">Gmail Desktop</h3>
-        <p className="text-muted-foreground mt-1">{'\uBC84\uC804 1.0.0'}</p>
+        <p className="text-muted-foreground mt-1">{'버전 '}{appVersion || '...'}</p>
       </div>
 
       <div className="space-y-2 text-sm text-muted-foreground">

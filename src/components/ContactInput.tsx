@@ -48,7 +48,8 @@ export function ContactInput({ value, onChange, placeholder, className }: Contac
       // 이전 주소들 (마지막 세그먼트 제외)
       const prev = parts.slice(0, -1).map((p) => p.trim()).filter(Boolean);
       prev.push(contact.email);
-      const newValue = prev.join(', ');
+      // 뒤에 ", " 추가하여 다음 입력 시 바로 검색 가능하게
+      const newValue = prev.join(', ') + ', ';
       onChange(newValue);
       setSuggestions([]);
       setShowDropdown(false);
