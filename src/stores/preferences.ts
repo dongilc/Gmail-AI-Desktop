@@ -49,6 +49,8 @@ interface PreferencesState {
   accountSignatures: Record<string, string>;
   setAccountSignature: (accountId: string, signature: string) => void;
   removeAccountSignature: (accountId: string) => void;
+  appTimezone: string;
+  setAppTimezone: (value: string) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -101,6 +103,8 @@ export const usePreferencesStore = create<PreferencesState>()(
         set((state) => ({
           accountSignatures: { ...state.accountSignatures, [accountId]: signature },
         })),
+      appTimezone: 'auto',
+      setAppTimezone: (value) => set({ appTimezone: value || 'auto' }),
       removeAccountSignature: (accountId) =>
         set((state) => {
           const next = { ...state.accountSignatures };
@@ -110,7 +114,7 @@ export const usePreferencesStore = create<PreferencesState>()(
     }),
     {
       name: 'gmail-desktop-preferences',
-      version: 13,
+      version: 14,
       migrate: (state: any, _version) => {
         if (!state) return state;
         let next = { ...state };
@@ -161,6 +165,9 @@ export const usePreferencesStore = create<PreferencesState>()(
         }
         if (!next.accountSignatures || typeof next.accountSignatures !== 'object') {
           next.accountSignatures = {};
+        }
+        if (typeof next.appTimezone !== 'string' || !next.appTimezone) {
+          next.appTimezone = 'auto';
         }
         return next;
       },

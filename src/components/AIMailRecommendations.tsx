@@ -6,6 +6,7 @@ import { useAiStore } from '@/stores/ai';
 import { usePreferencesStore } from '@/stores/preferences';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
+import { tzFormat } from '@/lib/timezone';
 import type { Email } from '@/types';
 
 type RecommendedEmail = {
@@ -159,7 +160,7 @@ export function AIMailRecommendations() {
           subject: e.subject || '',
           from: e.from?.name || e.from?.email || '',
           snippet: e.snippet || '',
-          date: new Date(e.date).toLocaleDateString('ko-KR'),
+          date: tzFormat(new Date(e.date), { year: 'numeric', month: '2-digit', day: '2-digit' }),
         }));
 
         const prompt = buildRecommendPrompt(emailData);

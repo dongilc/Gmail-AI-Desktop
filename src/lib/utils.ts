@@ -1,35 +1,41 @@
 import { type ClassValue, clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { tzFormat, tzDateParts } from './timezone';
 
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs));
 }
 
+// Days between two Date instants using the app timezone's calendar boundaries.
+function daysBetweenInAppTz(from: Date, to: Date): number {
+  const a = tzDateParts(from);
+  const b = tzDateParts(to);
+  const aUtc = Date.UTC(a.year, a.month - 1, a.day);
+  const bUtc = Date.UTC(b.year, b.month - 1, b.day);
+  return Math.floor((bUtc - aUtc) / (1000 * 60 * 60 * 24));
+}
+
 export function formatDate(date: Date): string {
   const now = new Date();
-  const diff = now.getTime() - date.getTime();
-  const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+  const days = daysBetweenInAppTz(date, now);
 
   if (days === 0) {
-    return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+    return tzFormat(date, { hour: '2-digit', minute: '2-digit' });
   } else if (days === 1) {
     return '\uC5B4\uC81C';
   } else if (days < 7) {
     return `${days}\uC77C \uC804`;
   }
-  return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+  return tzFormat(date, { month: 'short', day: 'numeric' });
 }
 
 export function formatTime(date: Date): string {
-  return date.toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' });
+  return tzFormat(date, { hour: '2-digit', minute: '2-digit' });
 }
 
 // Return date only (no time)
 export function formatShortDate(date: Date): string {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const targetDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-  const diff = Math.floor((today.getTime() - targetDay.getTime()) / (1000 * 60 * 60 * 24));
+  const diff = daysBetweenInAppTz(date, new Date());
 
   if (diff === 0) {
     return '\uC624\uB298';
@@ -38,11 +44,11 @@ export function formatShortDate(date: Date): string {
   } else if (diff < 7) {
     return `${diff}\uC77C \uC804`;
   }
-  return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+  return tzFormat(date, { month: 'short', day: 'numeric' });
 }
 
 export function formatFullDate(date: Date): string {
-  return date.toLocaleDateString('ko-KR', {
+  return tzFormat(date, {
     year: 'numeric',
     month: 'long',
     day: 'numeric',
@@ -194,21 +200,11 @@ export function stripHtml(html: string): string {
 }
 
 export function getDueDateLabel(date: Date): string {
-  const now = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const dueDay = new Date(date.getFullYear(), date.getMonth(), date.getDate());
-
-  if (dueDay.getTime() === today.getTime()) {
-    return '\uC624\uB298';
-  } else if (dueDay.getTime() === tomorrow.getTime()) {
-    return '\uB0B4\uC77C';
-  } else if (dueDay < today) {
-    const diff = Math.floor((today.getTime() - dueDay.getTime()) / (1000 * 60 * 60 * 24));
-    return `${diff}\uC77C \uC9C0\uB0A8`;
-  }
-  return date.toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' });
+  const diff = daysBetweenInAppTz(date, new Date());
+  if (diff === 0) return '\uC624\uB298';
+  if (diff === -1) return '\uB0B4\uC77C';
+  if (diff > 0) return `${diff}\uC77C \uC9C0\uB0A8`;
+  return tzFormat(date, { month: 'short', day: 'numeric' });
 }
 
 export function getQuickDueDate(option: 'today' | 'tomorrow' | 'nextWeek'): Date {

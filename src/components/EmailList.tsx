@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/context-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn, formatShortDate, formatTime, getSenderDisplayName, getSenderEmailAddress } from '@/lib/utils';
+import { tzFormat } from '@/lib/timezone';
 import type { Email, EmailAction, EmailActionType } from '@/types';
 
 const SUMMARY_PLACEHOLDER = '\uC694\uC57D \uC900\uBE44 \uC911';
@@ -180,7 +181,7 @@ export function EmailList() {
     const dates = currentEmails.map(e => new Date(e.date).getTime());
     const oldest = new Date(Math.min(...dates));
     const newest = new Date(Math.max(...dates));
-    const fmt = (d: Date) => d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'short', day: 'numeric' });
+    const fmt = (d: Date) => tzFormat(d, { year: 'numeric', month: 'short', day: 'numeric' });
     return `${fmt(oldest)} ~ ${fmt(newest)}`;
   }, [currentEmails]);
 
@@ -475,7 +476,7 @@ export function EmailList() {
     }
     const description = [
       `보낸사람: ${getSenderDisplayName(email.from.name, email.from.email)}`,
-      `날짜: ${emailDate.toLocaleString('ko-KR')}`,
+      `날짜: ${tzFormat(emailDate, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}`,
       '',
       emailContent,
     ].join('\n');
@@ -502,7 +503,7 @@ export function EmailList() {
       emailContent = decodeHtmlEntities(email.snippet);
     }
 
-    const fullText = `제목: ${email.subject || ''}\n날짜: ${emailDate.toLocaleString('ko-KR')}\n내용:\n${emailContent}`;
+    const fullText = `제목: ${email.subject || ''}\n날짜: ${tzFormat(emailDate, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}\n내용:\n${emailContent}`;
 
     try {
       if (window.electronAPI?.aiParseSchedule) {
@@ -528,7 +529,7 @@ export function EmailList() {
           // 설명 설정
           const description = [
             `보낸사람: ${getSenderDisplayName(email.from.name, email.from.email)}`,
-            `날짜: ${emailDate.toLocaleString('ko-KR')}`,
+            `날짜: ${tzFormat(emailDate, { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}`,
             '',
             emailContent,
           ].join('\n');
