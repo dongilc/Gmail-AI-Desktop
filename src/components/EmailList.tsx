@@ -19,7 +19,7 @@ import {
 } from '@/components/ui/context-menu';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { cn, formatShortDate, formatTime, getSenderDisplayName, getSenderEmailAddress } from '@/lib/utils';
-import { tzFormat } from '@/lib/timezone';
+import { tzFormat, formatForDateTimeLocal, formatForDateInput, parseWallTimeInAppTz } from '@/lib/timezone';
 import type { Email, EmailAction, EmailActionType } from '@/types';
 
 const SUMMARY_PLACEHOLDER = '\uC694\uC57D \uC900\uBE44 \uC911';
@@ -421,14 +421,8 @@ export function EmailList() {
     });
   }, []);
 
-  const toLocalInputValue = (date: Date) => {
-    const offset = date.getTimezoneOffset() * 60000;
-    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-  };
-
-  const toLocalDateValue = (date: Date) => {
-    return date.toISOString().slice(0, 10);
-  };
+  const toLocalInputValue = (date: Date) => formatForDateTimeLocal(date);
+  const toLocalDateValue = (date: Date) => formatForDateInput(date);
 
   const decodeHtmlEntities = (text: string) => {
     const textarea = document.createElement('textarea');
@@ -558,25 +552,18 @@ export function EmailList() {
     let end: Date;
 
     if (eventAllDay) {
-      // 하루종일 이벤트: 로컬 시간대로 Date 생성 (UTC 변환 문제 방지)
-      if (eventStart) {
-        const [sy, sm, sd] = eventStart.split('-').map(Number);
-        start = new Date(sy, sm - 1, sd, 12, 0, 0); // 정오로 설정하여 시간대 문제 최소화
-      } else {
-        start = new Date();
-      }
-      if (eventEnd) {
-        const [ey, em, ed] = eventEnd.split('-').map(Number);
-        end = new Date(ey, em - 1, ed, 12, 0, 0);
-      } else {
-        end = new Date(start.getTime() + 24 * 60 * 60000);
-      }
+      const mkAllDay = (value: string) => {
+        const [y, m, d] = value.split('-').map(Number);
+        return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+      };
+      start = eventStart ? mkAllDay(eventStart) : new Date();
+      end = eventEnd ? mkAllDay(eventEnd) : new Date(start.getTime() + 24 * 60 * 60000);
       if (end <= start) {
         end = new Date(start.getTime() + 24 * 60 * 60000);
       }
     } else {
-      start = eventStart ? new Date(eventStart) : new Date();
-      end = eventEnd ? new Date(eventEnd) : new Date(start.getTime() + 60 * 60000);
+      start = eventStart ? parseWallTimeInAppTz(eventStart) : new Date();
+      end = eventEnd ? parseWallTimeInAppTz(eventEnd) : new Date(start.getTime() + 60 * 60000);
       if (end <= start) {
         end = new Date(start.getTime() + 60 * 60000);
       }

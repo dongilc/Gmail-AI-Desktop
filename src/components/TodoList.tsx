@@ -3,6 +3,7 @@ import { CheckSquare, Plus, Loader2, Mail, ExternalLink, Info, ArrowDownUp, Tras
 import { useAccountsStore } from "@/stores/accounts";
 import { useTasksStore } from "@/stores/tasks";
 import { useEmailsStore } from "@/stores/emails";
+import { formatForDateTimeLocal, parseWallTimeInAppTz } from "@/lib/timezone";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -96,10 +97,7 @@ export function TodoList() {
     }
   };
 
-  const toLocalInputValue = (date: Date) => {
-    const offset = date.getTimezoneOffset() * 60000;
-    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-  };
+  const toLocalInputValue = (date: Date) => formatForDateTimeLocal(date);
 
   useEffect(() => {
     if (currentAccountId) {
@@ -173,7 +171,7 @@ export function TodoList() {
       ...editTask,
       title,
       notes: editNotes.trim() || undefined,
-      due: editDue ? new Date(editDue) : undefined,
+      due: editDue ? parseWallTimeInAppTz(editDue) : undefined,
     };
     await saveTask(currentAccountId, editTask.taskListId, updated);
     setDetailTask((prev) => (prev && prev.id === updated.id ? updated : prev));
