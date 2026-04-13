@@ -26,6 +26,12 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { cn, formatTime } from "@/lib/utils";
+import {
+  tzShift,
+  formatForDateTimeLocal,
+  parseWallTimeInAppTz,
+  dateOnlyWall,
+} from "@/lib/timezone";
 import type { Task } from "@/types";
 
 const LABEL_DAY = "\uC77C";
@@ -147,7 +153,7 @@ export function Calendar() {
 
   useEffect(() => {
     if (isMonthOpen) {
-      setSelectedMonthDay(selectedDate);
+      setSelectedMonthDay(tzShift(selectedDate));
     }
   }, [isMonthOpen, selectedDate]);
 
@@ -180,23 +186,22 @@ export function Calendar() {
     }
   };
 
-  const toLocalInputValue = (date: Date) => {
-    const offset = date.getTimezoneOffset() * 60000;
-    return new Date(date.getTime() - offset).toISOString().slice(0, 16);
-  };
+  const toLocalInputValue = (date: Date) => formatForDateTimeLocal(date);
 
   const openCreateDialog = (baseDate?: Date | null) => {
-    const base = baseDate ? new Date(baseDate) : new Date(selectedDate);
-    const start = new Date(base);
-    start.setHours(9, 0, 0, 0);
-    const end = new Date(base);
-    end.setHours(10, 0, 0, 0);
+    // baseDate is a wall-space Date (from month grid click) or null; read its
+    // local fields directly to build the YYYY-MM-DD string.
+    const baseWall = baseDate ?? tzShift(selectedDate);
+    const y = baseWall.getFullYear();
+    const mo = String(baseWall.getMonth() + 1).padStart(2, "0");
+    const d = String(baseWall.getDate()).padStart(2, "0");
+    const dateStr = `${y}-${mo}-${d}`;
     setCreateTitle("");
     setCreateLocation("");
     setCreateDescription("");
     setCreateAllDay(false);
-    setCreateStart(toLocalInputValue(start));
-    setCreateEnd(toLocalInputValue(end));
+    setCreateStart(`${dateStr}T09:00`);
+    setCreateEnd(`${dateStr}T10:00`);
     setAiInput("");
     setAiError(null);
     setCreateDialogOpen(true);
@@ -205,18 +210,12 @@ export function Calendar() {
   const handleCreateStartChange = (value: string) => {
     setCreateStart(value);
     if (!value) return;
-    const start = new Date(value);
+    const start = parseWallTimeInAppTz(value);
     if (Number.isNaN(start.getTime())) return;
     const nextEnd = new Date(start.getTime() + 60 * 60000);
-    setCreateEnd(toLocalInputValue(nextEnd));
+    setCreateEnd(formatForDateTimeLocal(nextEnd));
   };
 
-  const toLocalDateValue = (date: Date) => {
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
-    return `${year}-${month}-${day}`;
-  };
 
   const openEditDialog = (event: CalendarItem) => {
     setEditEvent(event);
@@ -229,10 +228,13 @@ export function Calendar() {
     const endDate = new Date(event.end);
 
     if (event.allDay) {
-      // allDay 이벤트: 날짜만 표시, end는 exclusive이므로 하루 빼기
-      setEditStart(toLocalDateValue(startDate));
-      const adjustedEnd = addDays(endDate, -1);
-      setEditEnd(toLocalDateValue(adjustedEnd));
+      // allDay dates are tz-independent; read UTC fields via dateOnlyWall.
+      const fmt = (d: Date) =>
+        `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(
+          d.getDate()
+        ).padStart(2, "0")}`;
+      setEditStart(fmt(dateOnlyWall(startDate)));
+      setEditEnd(fmt(addDays(dateOnlyWall(endDate), -1)));
     } else {
       setEditStart(toLocalInputValue(startDate));
       setEditEnd(toLocalInputValue(endDate));
@@ -270,24 +272,32 @@ export function Calendar() {
   };
 
   const isDayView = viewType === "day";
+  // All date-fns/grid math runs in "wall time" — a Date whose local fields equal
+  // the selected timezone's wall fields. This keeps day boundaries aligned with
+  // the user's chosen timezone instead of the OS timezone.
+  const selectedDateWall = tzShift(selectedDate);
   const rangeStart =
     viewType === "day"
-      ? startOfDay(selectedDate)
+      ? startOfDay(selectedDateWall)
       : viewType === "week"
-      ? startOfWeek(selectedDate, { weekStartsOn: 0 })
-      : startOfMonth(selectedDate);
+      ? startOfWeek(selectedDateWall, { weekStartsOn: 0 })
+      : startOfMonth(selectedDateWall);
   const rangeEnd =
     viewType === "day"
-      ? endOfDay(selectedDate)
+      ? endOfDay(selectedDateWall)
       : viewType === "week"
-      ? endOfWeek(selectedDate, { weekStartsOn: 0 })
-      : endOfMonth(selectedDate);
+      ? endOfWeek(selectedDateWall, { weekStartsOn: 0 })
+      : endOfMonth(selectedDateWall);
 
-  const taskItems: CalendarItem[] = taskLists
+  type WallItem = CalendarItem & { startWall: Date; endWall: Date };
+
+  const taskItems: WallItem[] = taskLists
     .flatMap((list) => tasks[list.id] || [])
     .filter((task) => task.due && !task.completed)
     .map((task) => {
       const due = new Date(task.due as Date);
+      // Tasks are date-only; place on stored calendar date regardless of tz.
+      const dueWall = dateOnlyWall(due);
       return {
         id: `task-${task.id}`,
         taskId: task.id,
@@ -296,57 +306,70 @@ export function Calendar() {
         description: task.notes,
         start: due,
         end: due,
+        startWall: dueWall,
+        endWall: dueWall,
         allDay: true,
         kind: "task",
         completed: task.completed,
       };
     });
 
-  const eventItems: CalendarItem[] = events.map((event) => ({
-    ...event,
-    kind: "event",
-  }));
+  const eventItems: WallItem[] = events.map((event) => {
+    const start = new Date(event.start);
+    const end = new Date(event.end);
+    // allDay events are date-only: pin to stored calendar date regardless of tz.
+    // Timed events: shift into app timezone so boundaries match the user's tz.
+    const startWall = event.allDay ? dateOnlyWall(start) : tzShift(start);
+    const endWall = event.allDay ? dateOnlyWall(end) : tzShift(end);
+    return {
+      ...event,
+      start,
+      end,
+      startWall,
+      endWall,
+      kind: "event",
+    };
+  });
 
-  const allItems = [
+  const allItems: WallItem[] = [
     ...(showEvents ? eventItems : []),
     ...(showTodos ? taskItems : []),
   ].filter((item) => {
-    const start = new Date(item.start);
-    const rawEnd = new Date(item.end);
-    const end = item.allDay && rawEnd > start ? addDays(rawEnd, -1) : rawEnd;
-    return start <= rangeEnd && end >= rangeStart;
+    const endWall =
+      item.allDay && item.endWall > item.startWall ? addDays(item.endWall, -1) : item.endWall;
+    return item.startWall <= rangeEnd && endWall >= rangeStart;
   });
 
-  allItems.sort((a, b) => new Date(a.start).getTime() - new Date(b.start).getTime());
+  allItems.sort((a, b) => a.startWall.getTime() - b.startWall.getTime());
 
   const headerLabel = (() => {
     if (viewType === "day") {
-      return format(selectedDate, "M\uC6D4 d\uC77C(EEEE)", { locale: ko });
+      return format(selectedDateWall, "M\uC6D4 d\uC77C(EEEE)", { locale: ko });
     }
     if (viewType === "week") {
-      const start = startOfWeek(selectedDate, { weekStartsOn: 0 });
+      const start = startOfWeek(selectedDateWall, { weekStartsOn: 0 });
       const end = addDays(start, 6);
       return `${format(start, "M\uC6D4 d\uC77C", { locale: ko })} ~ ${format(end, "M\uC6D4 d\uC77C", { locale: ko })}`;
     }
-    const start = startOfMonth(selectedDate);
+    const start = startOfMonth(selectedDateWall);
     return format(start, "yyyy\uB144 M\uC6D4", { locale: ko });
   })();
 
-  const getEventRange = (event: CalendarItem) => {
-    const startDate = new Date(event.start);
-    const rawEnd = new Date(event.end);
+  const getEventRange = (event: WallItem) => {
+    const startDate = event.startWall;
+    const rawEnd = event.endWall;
     const endDate = event.allDay && rawEnd > startDate ? addDays(rawEnd, -1) : rawEnd;
     return { start: startOfDay(startDate), end: startOfDay(endDate) };
   };
 
-  const isMultiDayEvent = (event: CalendarItem) => {
+  const isMultiDayEvent = (event: WallItem) => {
     const { start, end } = getEventRange(event);
     return differenceInCalendarDays(end, start) >= 1;
   };
 
   const multiDayEventIds = new Set(allItems.filter(isMultiDayEvent).map((event) => event.id));
 
-  const eventsByDay = allItems.reduce<Record<string, CalendarItem[]>>((acc, event) => {
+  const eventsByDay = allItems.reduce<Record<string, WallItem[]>>((acc, event) => {
     const { start, end } = getEventRange(event);
     for (let day = start; day <= end; day = addDays(day, 1)) {
       const dayKey = format(day, "yyyy-MM-dd");
@@ -356,8 +379,8 @@ export function Calendar() {
     return acc;
   }, {});
 
-  const monthStart = startOfMonth(selectedDate);
-  const monthEnd = endOfMonth(selectedDate);
+  const monthStart = startOfMonth(selectedDateWall);
+  const monthEnd = endOfMonth(selectedDateWall);
   const monthGridStart = startOfWeek(monthStart, { weekStartsOn: 0 });
   const monthGridEnd = endOfWeek(monthEnd, { weekStartsOn: 0 });
   const monthGridDays: Date[] = [];
@@ -408,25 +431,18 @@ export function Calendar() {
     let end: Date;
 
     if (createAllDay) {
-      // allDay: 날짜 문자열에서 로컬 시간대로 Date 생성
-      if (createStart) {
-        const [sy, sm, sd] = createStart.split('-').map(Number);
-        start = new Date(sy, sm - 1, sd, 12, 0, 0);
-      } else {
-        start = new Date();
-      }
-      if (createEnd) {
-        const [ey, em, ed] = createEnd.split('-').map(Number);
-        end = new Date(ey, em - 1, ed, 12, 0, 0);
-      } else {
-        end = start;
-      }
-      if (end < start) {
-        end = start;
-      }
+      // allDay: parse YYYY-MM-DD as UTC-noon so getUTCDate() in calendar-service
+      // yields the intended calendar day regardless of timezone.
+      const mkAllDay = (value: string) => {
+        const [y, m, d] = value.split("-").map(Number);
+        return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+      };
+      start = createStart ? mkAllDay(createStart) : new Date();
+      end = createEnd ? mkAllDay(createEnd) : start;
+      if (end < start) end = start;
     } else {
-      start = createStart ? new Date(createStart) : new Date();
-      end = createEnd ? new Date(createEnd) : new Date(start.getTime() + 60 * 60000);
+      start = createStart ? parseWallTimeInAppTz(createStart) : new Date();
+      end = createEnd ? parseWallTimeInAppTz(createEnd) : new Date(start.getTime() + 60 * 60000);
       if (end <= start) {
         end = new Date(start.getTime() + 60 * 60000);
       }
@@ -452,25 +468,16 @@ export function Calendar() {
     let end: Date;
 
     if (editAllDay) {
-      // allDay: 날짜 문자열에서 로컬 시간대로 Date 생성
-      if (editStart) {
-        const [sy, sm, sd] = editStart.split('-').map(Number);
-        start = new Date(sy, sm - 1, sd, 12, 0, 0);
-      } else {
-        start = new Date(editEvent.start);
-      }
-      if (editEnd) {
-        const [ey, em, ed] = editEnd.split('-').map(Number);
-        end = new Date(ey, em - 1, ed, 12, 0, 0);
-      } else {
-        end = start;
-      }
-      if (end < start) {
-        end = start;
-      }
+      const mkAllDay = (value: string) => {
+        const [y, m, d] = value.split("-").map(Number);
+        return new Date(Date.UTC(y, m - 1, d, 12, 0, 0));
+      };
+      start = editStart ? mkAllDay(editStart) : new Date(editEvent.start);
+      end = editEnd ? mkAllDay(editEnd) : start;
+      if (end < start) end = start;
     } else {
-      start = editStart ? new Date(editStart) : new Date(editEvent.start);
-      end = editEnd ? new Date(editEnd) : new Date(start.getTime() + 60 * 60000);
+      start = editStart ? parseWallTimeInAppTz(editStart) : new Date(editEvent.start);
+      end = editEnd ? parseWallTimeInAppTz(editEnd) : new Date(start.getTime() + 60 * 60000);
       if (end <= start) {
         end = new Date(start.getTime() + 60 * 60000);
       }
@@ -505,7 +512,7 @@ export function Calendar() {
       taskListId,
       title,
       notes: editTaskNotes.trim() || undefined,
-      due: editTaskDue ? new Date(editTaskDue) : undefined,
+      due: editTaskDue ? parseWallTimeInAppTz(editTaskDue) : undefined,
       completed: editTaskSource?.completed ?? editTaskItem.completed ?? false,
       completedDate: editTaskSource?.completedDate,
       position: editTaskSource?.position || "0",
@@ -767,8 +774,8 @@ export function Calendar() {
                           const dayEvents = (eventsByDay[dayKey] || []).filter(
                             (event) => !multiDayEventIds.has(event.id)
                           );
-                          const isCurrentMonth = isSameMonth(day, selectedDate);
-                          const isToday = isSameDay(day, new Date());
+                          const isCurrentMonth = isSameMonth(day, selectedDateWall);
+                          const isToday = isSameDay(day, tzShift(new Date()));
                           const isSelected = selectedMonthDay ? isSameDay(day, selectedMonthDay) : false;
                           return (
                             <div

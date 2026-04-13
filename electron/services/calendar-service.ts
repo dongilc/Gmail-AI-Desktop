@@ -193,17 +193,17 @@ export class CalendarService {
   }
 
   private formatDate(date: Date): string {
-    // 로컬 시간대 기준으로 날짜 포맷 (UTC 변환 문제 방지)
-    const year = date.getFullYear();
-    const month = String(date.getMonth() + 1).padStart(2, '0');
-    const day = String(date.getDate()).padStart(2, '0');
+    // UTC 기준으로 포맷. 렌더러가 allDay 이벤트를 UTC-noon으로 넘겨주므로
+    // 시스템 타임존과 무관하게 의도한 달력 날짜가 유지된다.
+    const year = date.getUTCFullYear();
+    const month = String(date.getUTCMonth() + 1).padStart(2, '0');
+    const day = String(date.getUTCDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
   }
 
   private formatDatePlusOne(date: Date): string {
     // Google Calendar API의 allDay end date는 exclusive이므로 하루 추가
-    const nextDay = new Date(date);
-    nextDay.setDate(nextDay.getDate() + 1);
+    const nextDay = new Date(date.getTime() + 24 * 60 * 60 * 1000);
     return this.formatDate(nextDay);
   }
 }
