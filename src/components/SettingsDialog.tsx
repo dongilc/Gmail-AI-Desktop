@@ -27,6 +27,7 @@ import {
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { cn } from '@/lib/utils';
+import { tzFormat } from '@/lib/timezone';
 import { playTodoCompleteSound } from '@/lib/sounds';
 
 type TabType = 'accounts' | 'general' | 'aiServer' | 'theme' | 'shortcuts' | 'about';
@@ -399,37 +400,23 @@ const TIMEZONE_PRESETS: { value: string; label: string }[] = [
 ];
 
 function TimezoneSection() {
-  const [savedTz, setSavedTz] = useState<string>('auto');
-  const [selectedTz, setSelectedTz] = useState<string>('auto');
-  const [systemTz, setSystemTz] = useState<string>('');
-  const [saving, setSaving] = useState(false);
+  const appTimezone = usePreferencesStore((s) => s.appTimezone);
+  const setAppTz = usePreferencesStore((s) => s.setAppTimezone);
+  const systemTz =
+    (() => {
+      try {
+        return Intl.DateTimeFormat().resolvedOptions().timeZone || '';
+      } catch {
+        return '';
+      }
+    })();
 
-  useEffect(() => {
-    if (!window.electronAPI) return;
-    window.electronAPI.getAppTimezone?.().then((tz: string) => {
-      setSavedTz(tz || 'auto');
-      setSelectedTz(tz || 'auto');
-    });
-    window.electronAPI.getSystemTimezone?.().then((tz: string) => {
-      setSystemTz(tz || '');
-    });
-  }, []);
+  const currentTz = appTimezone === 'auto' ? systemTz : appTimezone;
 
-  const isDirty = selectedTz !== savedTz;
-  const currentTz =
-    savedTz === 'auto'
-      ? systemTz || Intl.DateTimeFormat().resolvedOptions().timeZone
-      : savedTz;
-
-  const handleSaveAndRestart = async () => {
-    if (!window.electronAPI?.setAppTimezone) return;
-    setSaving(true);
-    try {
-      await window.electronAPI.setAppTimezone(selectedTz);
-      await window.electronAPI.relaunchApp?.();
-    } finally {
-      setSaving(false);
-    }
+  const handleChange = (tz: string) => {
+    setAppTz(tz);
+    // Persist to main process file too so main-side Date operations use it next launch.
+    window.electronAPI?.setAppTimezone?.(tz);
   };
 
   return (
@@ -437,13 +424,14 @@ function TimezoneSection() {
       <div>
         <div className="text-sm font-medium">시간대</div>
         <div className="text-xs text-muted-foreground mt-0.5">
-          캘린더와 일정 표시에 사용되는 시간대입니다. 현재 적용: <span className="font-mono">{currentTz}</span>
+          메일/캘린더/할 일의 날짜·시간이 선택된 시간대로 표시됩니다. 현재 적용:{' '}
+          <span className="font-mono">{currentTz}</span>
         </div>
       </div>
       <select
         className="w-full h-9 rounded-md border border-input bg-background text-foreground px-3 text-sm [&>option]:bg-background [&>option]:text-foreground"
-        value={selectedTz}
-        onChange={(e) => setSelectedTz(e.target.value)}
+        value={appTimezone}
+        onChange={(e) => handleChange(e.target.value)}
       >
         {TIMEZONE_PRESETS.map((tz) => (
           <option key={tz.value} value={tz.value}>
@@ -452,16 +440,6 @@ function TimezoneSection() {
           </option>
         ))}
       </select>
-      {isDirty && (
-        <div className="flex items-center justify-between gap-2 pt-1">
-          <div className="text-xs text-muted-foreground">
-            변경 사항을 적용하려면 앱을 재시작해야 합니다.
-          </div>
-          <Button size="sm" onClick={handleSaveAndRestart} disabled={saving}>
-            {saving ? '재시작 중...' : '저장 및 재시작'}
-          </Button>
-        </div>
-      )}
     </div>
   );
 }
@@ -1036,7 +1014,7 @@ function AiServerTab() {
 
   const formatPerfTime = (iso: string) => {
     try {
-      return new Date(iso).toLocaleString();
+      return tzFormat(new Date(iso), { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' });
     } catch {
       return iso;
     }

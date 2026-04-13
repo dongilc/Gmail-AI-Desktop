@@ -31,6 +31,7 @@ import {
   getSenderEmailAddress,
   formatAddressLabel,
 } from '@/lib/utils';
+import { tzFormat } from '@/lib/timezone';
 import type { EmailDraft, EmailAttachment } from '@/types';
 
 const ADDRESS_COLLAPSE_THRESHOLD = 2;
@@ -791,7 +792,7 @@ function EmailViewComponent() {
     const nextTo = getSenderEmailAddress(selectedEmail.from.email);
     const nextCc = '';
     const nextSubject = `Re: ${selectedEmail.subject}`;
-    const quoteText = `\n\n${new Date(selectedEmail.date).toLocaleString()} ${getSenderDisplayName(
+    const quoteText = `\n\n${tzFormat(new Date(selectedEmail.date), { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })} ${getSenderDisplayName(
       selectedEmail.from.name,
       selectedEmail.from.email
     )} \uC791\uC131:\n> ${(selectedEmail.body || selectedEmail.snippet).split('\n').join('\n> ')}`;
@@ -841,7 +842,7 @@ function EmailViewComponent() {
     const nextCc = Array.from(ccSet).join(', ');
     const subject = selectedEmail.subject || '';
     const nextSubject = subject.trim().toLowerCase().startsWith('re:') ? subject : `Re: ${subject}`;
-    const quoteText = `\n\n${new Date(selectedEmail.date).toLocaleString()} ${getSenderDisplayName(
+    const quoteText = `\n\n${tzFormat(new Date(selectedEmail.date), { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })} ${getSenderDisplayName(
       selectedEmail.from.name,
       selectedEmail.from.email
     )} \uC791\uC131:\n> ${(selectedEmail.body || selectedEmail.snippet).split('\n').join('\n> ')}`;
@@ -874,7 +875,7 @@ function EmailViewComponent() {
     const quoteText = `\n\n---------- 전달된 메시지 ----------\n보낸 사람: ${getSenderDisplayName(
       selectedEmail.from.name,
       selectedEmail.from.email
-    )}\n날짜: ${new Date(selectedEmail.date).toLocaleString()}\n제목: ${
+    )}\n날짜: ${tzFormat(new Date(selectedEmail.date), { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' })}\n제목: ${
       selectedEmail.subject
     }\n받는 사람: ${selectedEmail.to
       .map((t) => formatAddressLabel(t.name, t.email))
@@ -1752,7 +1753,7 @@ function EmailViewComponent() {
         const userContent = hasInlineImages
           ? userHtml
           : escapeHtml(latestBody.trim()).replace(/\n/g, '<br>');
-        const dateStr = escapeHtml(new Date(selectedEmail.date).toLocaleString());
+        const dateStr = escapeHtml(tzFormat(new Date(selectedEmail.date), { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }));
         const sender = escapeHtml(getSenderDisplayName(selectedEmail.from.name, selectedEmail.from.email));
 
         if (isReplying) {

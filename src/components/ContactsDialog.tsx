@@ -3,6 +3,7 @@ import { BookUser, Trash2, Search, X, RefreshCw, Mail } from 'lucide-react';
 import { useContactsStore } from '@/stores/contacts';
 import { useEmailsStore } from '@/stores/emails';
 import { useAccountsStore } from '@/stores/accounts';
+import { tzFormat } from '@/lib/timezone';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -153,7 +154,7 @@ export function ContactsDialog() {
                         )}
                       </div>
                       <div className="text-xs text-muted-foreground">
-                        {c.frequency}{'회'} &middot; {new Date(c.lastSeen).toLocaleDateString()}
+                        {c.frequency}{'회'} &middot; {tzFormat(new Date(c.lastSeen), { year: 'numeric', month: '2-digit', day: '2-digit' })}
                       </div>
                     </div>
                     <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100">
