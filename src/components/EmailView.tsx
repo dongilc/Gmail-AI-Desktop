@@ -803,7 +803,7 @@ function EmailViewComponent() {
     setIsReplying(true);
     setIsForwarding(false);
     replyQuoteRef.current = quoteText;
-    replyQuoteHtmlRef.current = selectedEmail.bodyHtml
+    replyQuoteHtmlRef.current = (selectedEmail.bodyHtml ? quickStripHtml(selectedEmail.bodyHtml) : '')
       || (selectedEmail.body || selectedEmail.snippet || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
       || '';
     setReplyQuoteVersion((v) => v + 1);
@@ -854,7 +854,7 @@ function EmailViewComponent() {
     setIsReplying(true);
     setIsForwarding(false);
     replyQuoteRef.current = quoteText;
-    replyQuoteHtmlRef.current = selectedEmail.bodyHtml
+    replyQuoteHtmlRef.current = (selectedEmail.bodyHtml ? quickStripHtml(selectedEmail.bodyHtml) : '')
       || (selectedEmail.body || selectedEmail.snippet || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
       || '';
     setReplyQuoteVersion((v) => v + 1);
@@ -887,7 +887,7 @@ function EmailViewComponent() {
     setIsReplying(false);
     setIsForwarding(true);
     replyQuoteRef.current = quoteText;
-    replyQuoteHtmlRef.current = selectedEmail.bodyHtml
+    replyQuoteHtmlRef.current = (selectedEmail.bodyHtml ? quickStripHtml(selectedEmail.bodyHtml) : '')
       || (selectedEmail.body || selectedEmail.snippet || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>')
       || '';
     setReplyQuoteVersion((v) => v + 1);
