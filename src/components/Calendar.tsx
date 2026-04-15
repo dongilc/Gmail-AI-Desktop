@@ -34,6 +34,7 @@ import {
 } from "@/lib/timezone";
 import type { Task } from "@/types";
 
+const CALENDAR_MAX_VISIBLE_EVENTS = 2;
 const LABEL_DAY = "\uC77C";
 const LABEL_WEEK = "\uC8FC";
 const LABEL_MONTH = "\uC6D4";
@@ -802,11 +803,14 @@ export function Calendar() {
                                 {format(day, "d")}
                               </div>
                               <div className="calendar-day-body space-y-1">
-                                {dayEvents.map((event) => (
+                                {dayEvents.slice(0, CALENDAR_MAX_VISIBLE_EVENTS).map((event) => (
                                   <button
                                     key={event.id}
                                     type="button"
-                                    onClick={() => setDetailEvent(event)}
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setDetailEvent(event);
+                                    }}
                                     className={cn(
                                       "w-full text-left truncate rounded px-1.5 py-0.5",
                                       event.kind === "task"
@@ -817,6 +821,18 @@ export function Calendar() {
                                     {event.kind === "task" ? `[${LABEL_TASK}] ${event.title}` : event.title}
                                   </button>
                                 ))}
+                                {dayEvents.length > CALENDAR_MAX_VISIBLE_EVENTS && (
+                                  <button
+                                    type="button"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setSelectedMonthDay(day);
+                                    }}
+                                    className="w-full text-left truncate rounded px-1.5 py-0.5 text-muted-foreground hover:bg-muted/40"
+                                  >
+                                    {`+${dayEvents.length - CALENDAR_MAX_VISIBLE_EVENTS}개 더`}
+                                  </button>
+                                )}
                               </div>
                             </div>
                           );
