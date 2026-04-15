@@ -591,7 +591,7 @@ export function EmailList() {
   const renderEmailItem = useCallback(
     (index: number) => {
       const email = currentEmails[index];
-      if (!email) return null;
+      if (!email) return <div style={{ height: 80 }} />;
       const isMultiSelected = selectedIds.has(email.id);
       const isMultiMode = selectedIds.size > 1;
       const summaryLines = email.summary?.summaryLines?.filter(Boolean) || [];
