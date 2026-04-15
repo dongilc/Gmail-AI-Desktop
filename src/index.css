@@ -548,7 +548,7 @@
 .calendar-week-row {
   position: relative;
   flex: 1 1 0;
-  min-height: 120px;
+  min-height: 0;
 }
 
 .calendar-day-cell {
@@ -558,7 +558,8 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  min-height: 140px;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .calendar-day-label {
@@ -576,7 +577,7 @@
 
 .calendar-day-body {
   flex: 1;
-  overflow-y: auto;
+  overflow: hidden;
   padding-right: 4px;
 }
 
