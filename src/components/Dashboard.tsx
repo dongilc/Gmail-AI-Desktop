@@ -4,7 +4,8 @@ import { useTasksStore } from '@/stores/tasks';
 import { useCalendarStore } from '@/stores/calendar';
 import { useThemeStore } from '@/stores/theme';
 import { usePreferencesStore } from '@/stores/preferences';
-import { Loader2 } from 'lucide-react';
+import { Loader2, ChevronLeft, ChevronRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { AccountSwitcher } from './AccountSwitcher';
 import { Sidebar } from './Sidebar';
 import { EmailList } from './EmailList';
@@ -26,7 +27,16 @@ export function Dashboard() {
   const { selectedEmail, startCompose, isLoading: isEmailLoading, isSyncing } = useEmailsStore();
   const { openQuickAdd, isLoading: isTasksLoading } = useTasksStore();
   const { isLoading: isCalendarLoading } = useCalendarStore();
-  const { aiProvider, aiApiKey, aiServerUrl, aiModel, aiTemperature, aiNumPredict } = usePreferencesStore();
+  const {
+    aiProvider,
+    aiApiKey,
+    aiServerUrl,
+    aiModel,
+    aiTemperature,
+    aiNumPredict,
+    showRightPanel,
+    setShowRightPanel,
+  } = usePreferencesStore();
 
   // 주기적 자동 새로고침
   useAutoRefresh();
@@ -136,7 +146,7 @@ export function Dashboard() {
         />
 
         {/* Email section */}
-        <div className="flex-1 flex min-w-0">
+        <div className="flex-1 flex min-w-0 relative">
           {/* Email list */}
           <div style={{ width: emailListWidth }} className="border-r flex flex-col min-h-0 shrink-0">
             <EmailList />
@@ -151,37 +161,60 @@ export function Dashboard() {
           <div className="flex-1 flex flex-col min-h-0 min-w-0">
             <EmailView />
           </div>
+
+          {/* Right panel toggle — sits on the seam between email view and right panel */}
+          <button
+            type="button"
+            onClick={() => setShowRightPanel(!showRightPanel)}
+            title={showRightPanel ? '캘린더/할일 숨기기' : '캘린더/할일 보이기'}
+            aria-pressed={showRightPanel}
+            className={cn(
+              'absolute top-1/2 -translate-y-1/2 z-20',
+              'h-12 w-4 flex items-center justify-center',
+              'rounded-l-md border border-r-0 bg-background shadow-sm',
+              'text-muted-foreground hover:text-foreground hover:bg-muted transition-colors'
+            )}
+            style={{ right: 0 }}
+          >
+            {showRightPanel ? (
+              <ChevronRight className="h-3.5 w-3.5" />
+            ) : (
+              <ChevronLeft className="h-3.5 w-3.5" />
+            )}
+          </button>
         </div>
 
-        <Resizer
-          direction="vertical"
-          onResize={(delta) => setRightPanelWidth((w) => Math.max(250, Math.min(450, w - delta)))}
-        />
+        {showRightPanel && (
+          <>
+            <Resizer
+              direction="vertical"
+              onResize={(delta) => setRightPanelWidth((w) => Math.max(250, Math.min(450, w - delta)))}
+            />
 
-        {/* Right panel - Calendar & Todo */}
-        <div style={{ width: rightPanelWidth }} className="border-l flex flex-col min-h-0 shrink-0">
-          {/* Calendar */}
-          <div style={{ height: `${calendarHeight}%` }} className="border-b overflow-hidden">
-            <Calendar />
-          </div>
+            {/* Right panel - Calendar & Todo */}
+            <div style={{ width: rightPanelWidth }} className="border-l flex flex-col min-h-0 shrink-0">
+              <div style={{ height: `${calendarHeight}%` }} className="border-b overflow-hidden">
+                <Calendar />
+              </div>
 
-          <Resizer
-            direction="horizontal"
-            onResize={(delta) => {
-              const container = document.querySelector('.flex-1.flex.min-h-0');
-              if (container) {
-                const height = container.clientHeight;
-                const deltaPercent = (delta / height) * 100;
-                setCalendarHeight((h) => Math.max(20, Math.min(80, h + deltaPercent)));
-              }
-            }}
-          />
+              <Resizer
+                direction="horizontal"
+                onResize={(delta) => {
+                  const container = document.querySelector('.flex-1.flex.min-h-0');
+                  if (container) {
+                    const height = container.clientHeight;
+                    const deltaPercent = (delta / height) * 100;
+                    setCalendarHeight((h) => Math.max(20, Math.min(80, h + deltaPercent)));
+                  }
+                }}
+              />
 
-          {/* Todo */}
-          <div style={{ height: `${100 - calendarHeight}%` }} className="overflow-hidden">
-            <TodoList />
-          </div>
-        </div>
+              <div style={{ height: `${100 - calendarHeight}%` }} className="overflow-hidden">
+                <TodoList />
+              </div>
+            </div>
+          </>
+        )}
       </div>
 
       {/* Send queue */}
