@@ -924,6 +924,10 @@ function GeneralTab() {
 
 function AiServerTab() {
   const {
+    aiProvider,
+    setAiProvider,
+    aiApiKey,
+    setAiApiKey,
     aiServerUrl,
     setAiServerUrl,
     aiModel,
@@ -1189,6 +1193,65 @@ function AiServerTab() {
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div className="space-y-1 col-span-2">
+            <label className="text-xs text-muted-foreground">{'API 방식'}</label>
+            <div className="inline-flex items-center rounded-md border border-border/60 bg-muted/30 p-0.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setAiProvider('ollama');
+                  if (!aiServerUrl || /\/v1$/.test(aiServerUrl)) {
+                    setAiServerUrl('http://localhost:11434');
+                  }
+                }}
+                className={cn(
+                  'px-3 py-1 text-xs rounded-md transition-colors',
+                  aiProvider === 'ollama'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                Ollama
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAiProvider('openai');
+                  if (!aiServerUrl || aiServerUrl === 'http://localhost:11434') {
+                    setAiServerUrl('https://llm.openrobot-ai.com/v1');
+                  }
+                  if (!aiModel || aiModel === 'llama3.1:8b') {
+                    setAiModel('auto');
+                  }
+                }}
+                className={cn(
+                  'px-3 py-1 text-xs rounded-md transition-colors',
+                  aiProvider === 'openai'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'text-muted-foreground hover:text-foreground'
+                )}
+              >
+                OpenAI 호환
+              </button>
+            </div>
+            <div className="text-[11px] text-muted-foreground">
+              {aiProvider === 'openai'
+                ? 'OpenAI 호환 서버 (/chat/completions, /models). Base URL은 /v1까지 포함.'
+                : 'Ollama 로컬 서버 (/api/generate, /api/tags).'}
+            </div>
+          </div>
+          {aiProvider === 'openai' && (
+            <div className="space-y-1 col-span-2">
+              <label className="text-xs text-muted-foreground">API Key</label>
+              <Input
+                type="password"
+                value={aiApiKey}
+                onChange={(e) => setAiApiKey(e.target.value)}
+                placeholder="sk-..."
+                autoComplete="off"
+              />
+            </div>
+          )}
+          <div className="space-y-1 col-span-2">
             <div className="flex items-center justify-between">
               <label className="text-xs text-muted-foreground">{'\uBAA8\uB378 \uBAA9\uB85D'}</label>
               <Button
@@ -1208,12 +1271,27 @@ function AiServerTab() {
               disabled={modelsLoading || models.length === 0}
             >
               <option value="">{'\uBAA8\uB378 \uC120\uD0DD'}</option>
-              {models.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
+              {models.map((name) => {
+                const label =
+                  aiProvider === 'openai' && name === 'auto'
+                    ? 'auto  —  복잡도 자동 분기 (권장)'
+                    : aiProvider === 'openai' && name === 'fast'
+                      ? 'fast  —  Qwen3-8B (빠름, 가벼운 작업)'
+                      : aiProvider === 'openai' && name === 'quality'
+                        ? 'quality  —  Gemma 4 31B (코드/분석/긴 글)'
+                        : name;
+                return (
+                  <option key={name} value={name}>
+                    {label}
+                  </option>
+                );
+              })}
             </select>
+            {aiProvider === 'openai' && (
+              <div className="text-[11px] text-muted-foreground">
+                {'auto: 자동 분기 · fast: Qwen3-8B 강제 · quality: Gemma 4 31B 강제'}
+              </div>
+            )}
             {modelsError && <div className="text-[11px] text-destructive">{modelsError}</div>}
             {!modelsError && models.length === 0 && (
               <div className="text-[11px] text-muted-foreground">

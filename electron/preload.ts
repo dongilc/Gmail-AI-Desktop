@@ -96,7 +96,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
   aiGetNews: (payload: { keyword: string; language: 'ko' | 'en'; force?: boolean }) =>
     ipcRenderer.invoke('ai:get-news', payload),
   aiHealth: () => ipcRenderer.invoke('ai:health'),
-  aiSetConfig: (config: { baseUrl?: string; model?: string; temperature?: number; numPredict?: number }) =>
+  aiSetConfig: (config: { provider?: 'ollama' | 'openai'; apiKey?: string; baseUrl?: string; model?: string; temperature?: number; numPredict?: number }) =>
     ipcRenderer.invoke('ai:set-config', config),
   aiListModels: () => ipcRenderer.invoke('ai:list-models'),
   aiParseSchedule: (payload: { text: string; baseDate?: string }) =>
@@ -177,7 +177,7 @@ declare global {
       aiGetWeather: (payload: { location: string; language: 'ko' | 'en'; latitude?: number; longitude?: number }) => Promise<{ text: string }>;
       aiGetNews: (payload: { keyword: string; language: 'ko' | 'en'; force?: boolean }) => Promise<{ text: string }>;
       aiHealth: () => Promise<{ ok: boolean }>;
-      aiSetConfig: (config: { baseUrl?: string; model?: string; temperature?: number; numPredict?: number }) => Promise<{ baseUrl: string; model: string; temperature: number; numPredict: number }>;
+      aiSetConfig: (config: { provider?: 'ollama' | 'openai'; apiKey?: string; baseUrl?: string; model?: string; temperature?: number; numPredict?: number }) => Promise<{ provider: 'ollama' | 'openai'; apiKey: string; baseUrl: string; model: string; temperature: number; numPredict: number }>;
       aiListModels: () => Promise<string[]>;
       aiParseSchedule: (payload: { text: string; baseDate?: string }) => Promise<{ title: string; location: string; startLocal: string; endLocal: string; allDay: boolean; promptTokens?: number; evalTokens?: number } | null>;
       aiGenerate: (payload: { prompt: string }) => Promise<{ text: string; promptTokens?: number; evalTokens?: number }>;

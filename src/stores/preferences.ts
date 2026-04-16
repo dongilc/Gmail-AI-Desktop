@@ -20,6 +20,10 @@ interface PreferencesState {
   setBriefingLanguage: (value: 'ko' | 'en') => void;
   briefingNewsKeyword: string;
   setBriefingNewsKeyword: (value: string) => void;
+  aiProvider: 'ollama' | 'openai';
+  setAiProvider: (value: 'ollama' | 'openai') => void;
+  aiApiKey: string;
+  setAiApiKey: (value: string) => void;
   aiServerUrl: string;
   setAiServerUrl: (value: string) => void;
   aiModel: string;
@@ -74,6 +78,10 @@ export const usePreferencesStore = create<PreferencesState>()(
       setBriefingLanguage: (value) => set({ briefingLanguage: value }),
       briefingNewsKeyword: '\uAD6D\uC81C\uC774\uC288',
       setBriefingNewsKeyword: (value) => set({ briefingNewsKeyword: value }),
+      aiProvider: 'ollama',
+      setAiProvider: (value) => set({ aiProvider: value }),
+      aiApiKey: '',
+      setAiApiKey: (value) => set({ aiApiKey: value }),
       aiServerUrl: 'http://localhost:11434',
       setAiServerUrl: (value) => set({ aiServerUrl: value }),
       aiModel: 'llama3.1:8b',
@@ -114,10 +122,16 @@ export const usePreferencesStore = create<PreferencesState>()(
     }),
     {
       name: 'gmail-desktop-preferences',
-      version: 14,
+      version: 15,
       migrate: (state: any, _version) => {
         if (!state) return state;
         let next = { ...state };
+        if (next.aiProvider !== 'ollama' && next.aiProvider !== 'openai') {
+          next.aiProvider = 'ollama';
+        }
+        if (typeof next.aiApiKey !== 'string') {
+          next.aiApiKey = '';
+        }
         if (next.primaryAccountId === undefined) {
           next.primaryAccountId = null;
         }
