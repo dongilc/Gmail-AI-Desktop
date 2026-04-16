@@ -55,6 +55,8 @@ interface PreferencesState {
   removeAccountSignature: (accountId: string) => void;
   appTimezone: string;
   setAppTimezone: (value: string) => void;
+  showRightPanel: boolean;
+  setShowRightPanel: (value: boolean) => void;
 }
 
 export const usePreferencesStore = create<PreferencesState>()(
@@ -113,6 +115,8 @@ export const usePreferencesStore = create<PreferencesState>()(
         })),
       appTimezone: 'auto',
       setAppTimezone: (value) => set({ appTimezone: value || 'auto' }),
+      showRightPanel: true,
+      setShowRightPanel: (value) => set({ showRightPanel: value }),
       removeAccountSignature: (accountId) =>
         set((state) => {
           const next = { ...state.accountSignatures };
@@ -122,7 +126,7 @@ export const usePreferencesStore = create<PreferencesState>()(
     }),
     {
       name: 'gmail-desktop-preferences',
-      version: 15,
+      version: 16,
       migrate: (state: any, _version) => {
         if (!state) return state;
         let next = { ...state };
@@ -131,6 +135,9 @@ export const usePreferencesStore = create<PreferencesState>()(
         }
         if (typeof next.aiApiKey !== 'string') {
           next.aiApiKey = '';
+        }
+        if (typeof next.showRightPanel !== 'boolean') {
+          next.showRightPanel = true;
         }
         if (next.primaryAccountId === undefined) {
           next.primaryAccountId = null;
