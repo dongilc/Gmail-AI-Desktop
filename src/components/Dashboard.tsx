@@ -26,7 +26,7 @@ export function Dashboard() {
   const { selectedEmail, startCompose, isLoading: isEmailLoading, isSyncing } = useEmailsStore();
   const { openQuickAdd, isLoading: isTasksLoading } = useTasksStore();
   const { isLoading: isCalendarLoading } = useCalendarStore();
-  const { aiServerUrl, aiModel, aiTemperature, aiNumPredict } = usePreferencesStore();
+  const { aiProvider, aiApiKey, aiServerUrl, aiModel, aiTemperature, aiNumPredict } = usePreferencesStore();
 
   // 주기적 자동 새로고침
   useAutoRefresh();
@@ -77,12 +77,14 @@ export function Dashboard() {
 
   useEffect(() => {
     window.electronAPI.aiSetConfig({
+      provider: aiProvider,
+      apiKey: aiApiKey,
       baseUrl: aiServerUrl,
       model: aiModel,
       temperature: aiTemperature,
       numPredict: aiNumPredict,
     });
-  }, [aiServerUrl, aiModel, aiTemperature, aiNumPredict]);
+  }, [aiProvider, aiApiKey, aiServerUrl, aiModel, aiTemperature, aiNumPredict]);
 
   useEffect(() => {
     const minTimer = window.setTimeout(() => setStartupMinDone(true), 1400);

@@ -50,11 +50,15 @@ const OLLAMA_NUM_PREDICT = process.env.OLLAMA_NUM_PREDICT
   : 1024;
 
 let aiConfig = {
+  provider: (process.env.AI_PROVIDER === 'openai' ? 'openai' : 'ollama') as 'ollama' | 'openai',
+  apiKey: process.env.AI_API_KEY || '',
   baseUrl: OLLAMA_BASE_URL,
   model: OLLAMA_MODEL,
   temperature: OLLAMA_TEMPERATURE,
   numPredict: OLLAMA_NUM_PREDICT,
 };
+
+const trimTrailingSlash = (url: string) => url.replace(/\/+$/, '');
 
 const weatherCache = new Map<string, { ts: number; text: string }>();
 const newsCache = new Map<string, { ts: number; text: string }>();
@@ -414,10 +418,54 @@ const buildSummaryPrompt = (subject: string, from: string, body: string): string
   ].join('\n');
 };
 
+const callOpenAIGenerate = async (
+  prompt: string,
+  format?: 'json'
+): Promise<{ text: string; promptTokens: number; evalTokens: number }> => {
+  const base = trimTrailingSlash(aiConfig.baseUrl);
+  const response = await fetch(`${base}/chat/completions`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(aiConfig.apiKey ? { Authorization: `Bearer ${aiConfig.apiKey}` } : {}),
+    },
+    body: JSON.stringify({
+      model: aiConfig.model || 'auto',
+      messages: [{ role: 'user', content: prompt }],
+      temperature: aiConfig.temperature,
+      max_tokens: aiConfig.numPredict,
+      stream: false,
+      ...(format === 'json' ? { response_format: { type: 'json_object' } } : {}),
+    }),
+  });
+
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(`OpenAI error: ${response.status} ${text}`);
+  }
+
+  const data = await response.json();
+  const content = data?.choices?.[0]?.message?.content;
+  const payload = {
+    text: typeof content === 'string' ? content : '',
+    promptTokens: typeof data?.usage?.prompt_tokens === 'number' ? data.usage.prompt_tokens : 0,
+    evalTokens: typeof data?.usage?.completion_tokens === 'number' ? data.usage.completion_tokens : 0,
+  };
+  console.log('[OpenAI] token usage', {
+    promptTokens: payload.promptTokens,
+    evalTokens: payload.evalTokens,
+    total: payload.promptTokens + payload.evalTokens,
+  });
+  return payload;
+};
+
 const callOllamaGenerate = async (
   prompt: string,
   format?: 'json'
 ): Promise<{ text: string; promptTokens: number; evalTokens: number }> => {
+  if (aiConfig.provider === 'openai') {
+    return callOpenAIGenerate(prompt, format);
+  }
   const response = await fetch(`${aiConfig.baseUrl}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -475,6 +523,22 @@ const buildSchedulePrompt = (text: string, baseDateIso?: string): string => {
 };
 
 const listOllamaModels = async (): Promise<string[]> => {
+  if (aiConfig.provider === 'openai') {
+    const base = trimTrailingSlash(aiConfig.baseUrl);
+    const response = await fetch(`${base}/models`, {
+      headers: aiConfig.apiKey ? { Authorization: `Bearer ${aiConfig.apiKey}` } : {},
+    });
+    if (!response.ok) {
+      const text = await response.text();
+      throw new Error(`OpenAI models error: ${response.status} ${text}`);
+    }
+    const data = (await response.json()) as { data?: Array<{ id?: string }> };
+    const ids = (data.data ?? [])
+      .map((m) => m.id)
+      .filter((id): id is string => Boolean(id));
+    const presets = ['auto', 'fast', 'quality'];
+    return [...presets, ...ids.filter((id) => !presets.includes(id))];
+  }
   const response = await fetch(`${aiConfig.baseUrl}/api/tags`);
   if (!response.ok) {
     const text = await response.text();
@@ -1398,11 +1462,19 @@ ipcMain.handle('ai:summarize-email', async (_, accountId: string, emailId: strin
 
 ipcMain.handle('ai:health', async () => {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 2000);
+  const timeout = setTimeout(() => controller.abort(), 5000);
   try {
-    const response = await fetch(`${aiConfig.baseUrl}/api/tags`, {
+    const url =
+      aiConfig.provider === 'openai'
+        ? `${trimTrailingSlash(aiConfig.baseUrl)}/models`
+        : `${aiConfig.baseUrl}/api/tags`;
+    const response = await fetch(url, {
       method: 'GET',
       signal: controller.signal,
+      headers:
+        aiConfig.provider === 'openai' && aiConfig.apiKey
+          ? { Authorization: `Bearer ${aiConfig.apiKey}` }
+          : undefined,
     });
     clearTimeout(timeout);
     return { ok: response.ok };

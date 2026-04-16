@@ -189,7 +189,7 @@ export interface IpcChannels {
   // AI
   'ai:summarize-email': (accountId: string, emailId: string) => Promise<EmailSummary>;
   'ai:health': () => Promise<{ ok: boolean }>;
-  'ai:set-config': (config: { baseUrl?: string; model?: string; temperature?: number; numPredict?: number }) => Promise<{ baseUrl: string; model: string; temperature: number; numPredict: number }>;
+  'ai:set-config': (config: { provider?: 'ollama' | 'openai'; apiKey?: string; baseUrl?: string; model?: string; temperature?: number; numPredict?: number }) => Promise<{ provider: 'ollama' | 'openai'; apiKey: string; baseUrl: string; model: string; temperature: number; numPredict: number }>;
   'ai:list-models': () => Promise<string[]>;
   'ai:parse-schedule': (payload: { text: string; baseDate?: string }) => Promise<{
     title: string;
