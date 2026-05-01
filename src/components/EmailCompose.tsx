@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Send, Loader2 } from 'lucide-react';
+import { X, Send, Eye, Loader2 } from 'lucide-react';
 import { useAccountsStore } from '@/stores/accounts';
 import { useEmailsStore } from '@/stores/emails';
 import { usePreferencesStore } from '@/stores/preferences';
@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { ContactInput } from './ContactInput';
+import { EmailPreviewDialog } from './EmailPreviewDialog';
 import type { EmailDraft } from '@/types';
 
 interface EmailComposeProps {
@@ -22,20 +23,30 @@ export function EmailCompose({ onClose }: EmailComposeProps) {
   const [cc, setCc] = useState('');
   const [subject, setSubject] = useState('');
   const [body, setBody] = useState('');
+  const [previewDraft, setPreviewDraft] = useState<EmailDraft | null>(null);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!currentAccountId || !to.trim()) return;
-
+  const buildDraft = (): EmailDraft | null => {
+    if (!currentAccountId || !to.trim()) return null;
     const signature = currentAccountId ? accountSignatures[currentAccountId] : '';
     const finalBody = signature ? `${body}\n\n${signature}` : body;
-
-    const draft: EmailDraft = {
-      to: to.split(',').map((email) => email.trim()),
-      cc: cc ? cc.split(',').map((email) => email.trim()) : undefined,
+    return {
+      to: to.split(',').map((email) => email.trim()).filter(Boolean),
+      cc: cc ? cc.split(',').map((email) => email.trim()).filter(Boolean) : undefined,
       subject,
       body: finalBody,
     };
+  };
+
+  const handlePreview = () => {
+    const draft = buildDraft();
+    if (!draft) return;
+    setPreviewDraft(draft);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const draft = buildDraft();
+    if (!draft || !currentAccountId) return;
 
     try {
       await sendEmail(currentAccountId, draft);
@@ -104,6 +115,15 @@ export function EmailCompose({ onClose }: EmailComposeProps) {
               <Button type="button" variant="outline" onClick={onClose}>
                 취소
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={handlePreview}
+                disabled={!to.trim()}
+              >
+                <Eye className="h-4 w-4 mr-2" />
+                미리보기
+              </Button>
               <Button type="submit" disabled={isLoading || !to.trim()}>
                 {isLoading ? (
                   <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -116,6 +136,11 @@ export function EmailCompose({ onClose }: EmailComposeProps) {
           </div>
         </form>
       </div>
+      <EmailPreviewDialog
+        draft={previewDraft}
+        open={previewDraft !== null}
+        onClose={() => setPreviewDraft(null)}
+      />
     </div>
   );
 }
