@@ -21,6 +21,7 @@ import {
 import { Resizer } from './ui/resizer';
 import { PdfViewer } from './PdfViewer';
 import { ContactInput } from './ContactInput';
+import { EmailPreviewDialog } from './EmailPreviewDialog';
 import { useSendQueueStore } from '@/stores/send-queue';
 import {
   formatFullDate,
@@ -127,6 +128,7 @@ function EmailViewComponent() {
   const [isSending, setIsSending] = useState(false);
   const [draftId, setDraftId] = useState<string | null>(null);
   const [, setIsDraftSaving] = useState(false);
+  const [previewDraft, setPreviewDraft] = useState<EmailDraft | null>(null);
 
   // 답장 창 높이 (퍼센트)
   const [replyHeight, setReplyHeight] = useState(80);
@@ -1696,8 +1698,9 @@ function EmailViewComponent() {
     );
   }
 
-  const handleSendReply = async () => {
-    if (!currentAccountId || !replyTo.trim()) return;
+  // 현재 입력 상태로 실제 전송될 EmailDraft를 만든다 (전송/미리보기 공용)
+  const buildReplyDraft = async (): Promise<EmailDraft | null> => {
+    if (!currentAccountId || !replyTo.trim()) return null;
 
     // 전송 직전 contentEditable DOM에서 최신 텍스트를 읽어 동기화
     // React state(replyBody)는 비동기 업데이트이므로 빠른 타이핑 후 바로 전송 시 stale할 수 있음
@@ -1708,81 +1711,98 @@ function EmailViewComponent() {
       setReplyBody(latestBody);
     }
 
-    setIsSending(true);
+    // 첨부파일 변환
+    const attachments: EmailAttachment[] = await Promise.all(
+      attachedFiles.map(async (file) => ({
+        filename: file.name,
+        mimeType: file.type || 'application/octet-stream',
+        data: await fileToBase64(file),
+      }))
+    );
 
+    const toList = sanitizeAddresses(replyTo);
+    const ccList = sanitizeAddresses(replyCc);
+    const bccList = sanitizeAddresses(replyBcc);
+    if (toList.length === 0) return null;
+
+    const shouldThread = isReplying || isDraftEmail;
+
+    // 에디터에 인라인 이미지가 있는지 확인
+    const hasInlineImages = editorEl ? !!editorEl.querySelector('div[data-user-content] img[src^="data:"], img[src^="data:"]') : false;
+
+    // 사용자 입력 HTML (인라인 이미지 포함 시 사용)
+    let userHtml = '';
+    if (hasInlineImages && editorEl) {
+      userHtml = getEditorUserHtml(editorEl);
+    }
+
+    // 서명 생성
+    const signature = currentAccountId ? accountSignatures[currentAccountId] : '';
+    const signatureHtml = signature
+      ? `<br><div style="color:var(--muted-foreground,#888);">${escapeHtml(signature).replace(/\n/g, '<br>')}</div>`
+      : '';
+
+    // 원본 메일에 HTML 본문(인라인 이미지 포함)이 있으면 HTML로 전송
+    let finalBody = latestBody;
+    let isHtml = false;
+    if (replyQuoteHtmlRef.current && selectedEmail && (isReplying || isForwarding)) {
+      // 사용자가 입력한 HTML (이미지가 있으면 그대로, 없으면 텍스트→HTML 변환)
+      const userContent = hasInlineImages
+        ? userHtml
+        : escapeHtml(latestBody.trim()).replace(/\n/g, '<br>');
+      const dateStr = escapeHtml(tzFormat(new Date(selectedEmail.date), { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }));
+      const sender = escapeHtml(getSenderDisplayName(selectedEmail.from.name, selectedEmail.from.email));
+
+      if (isReplying) {
+        finalBody = `<div>${userContent}</div>${signatureHtml}<br><div>${dateStr} ${sender} 작성:</div><blockquote style="margin:0 0 0 0.8ex;border-left:1px solid #ccc;padding-left:1ex;">${replyQuoteHtmlRef.current}</blockquote>`;
+      } else if (isForwarding) {
+        const toLine = escapeHtml(selectedEmail.to.map((t) => formatAddressLabel(t.name, t.email)).join(', '));
+        finalBody = `<div>${userContent}</div>${signatureHtml}<br><div>---------- 전달된 메시지 ----------</div><div>보낸 사람: ${sender}</div><div>날짜: ${dateStr}</div><div>제목: ${escapeHtml(selectedEmail.subject)}</div><div>받는 사람: ${toLine}</div><br>${replyQuoteHtmlRef.current}`;
+      }
+      isHtml = true;
+    } else if (hasInlineImages) {
+      // 새 메일 작성 또는 인용문 없는 경우에도 인라인 이미지가 있으면 HTML로 전송
+      finalBody = userHtml + signatureHtml;
+      isHtml = true;
+    } else if (signature) {
+      // 텍스트 전용 (인라인 이미지 없고, 인용문 없는 경우)
+      finalBody = latestBody + '\n\n' + signature;
+    }
+
+    return {
+      to: toList,
+      cc: ccList.length > 0 ? ccList : undefined,
+      bcc: bccList.length > 0 ? bccList : undefined,
+      subject: replySubject,
+      body: finalBody,
+      isHtml: isHtml || undefined,
+      replyToMessageId: isReplying ? selectedEmail?.id : undefined,
+      threadId: shouldThread ? selectedEmail?.threadId : undefined,
+      attachments: attachments.length > 0 ? attachments : undefined,
+    };
+  };
+
+  const handlePreviewReply = async () => {
+    if (!currentAccountId || !replyTo.trim()) return;
     try {
-      // 첨부파일 변환
-      const attachments: EmailAttachment[] = await Promise.all(
-        attachedFiles.map(async (file) => ({
-          filename: file.name,
-          mimeType: file.type || 'application/octet-stream',
-          data: await fileToBase64(file),
-        }))
-      );
+      const draft = await buildReplyDraft();
+      if (!draft) return;
+      setPreviewDraft(draft);
+    } catch (error) {
+      console.error('Failed to build preview:', error);
+    }
+  };
 
-      const toList = sanitizeAddresses(replyTo);
-      const ccList = sanitizeAddresses(replyCc);
-      const bccList = sanitizeAddresses(replyBcc);
-      if (toList.length === 0) {
+  const handleSendReply = async () => {
+    if (!currentAccountId || !replyTo.trim()) return;
+
+    setIsSending(true);
+    try {
+      const draft = await buildReplyDraft();
+      if (!draft) {
         setIsSending(false);
         return;
       }
-
-      const shouldThread = isReplying || isDraftEmail;
-
-      // 에디터에 인라인 이미지가 있는지 확인
-      const hasInlineImages = editorEl ? !!editorEl.querySelector('div[data-user-content] img[src^="data:"], img[src^="data:"]') : false;
-
-      // 사용자 입력 HTML (인라인 이미지 포함 시 사용)
-      let userHtml = '';
-      if (hasInlineImages && editorEl) {
-        userHtml = getEditorUserHtml(editorEl);
-      }
-
-      // 서명 생성
-      const signature = currentAccountId ? accountSignatures[currentAccountId] : '';
-      const signatureHtml = signature
-        ? `<br><div style="color:var(--muted-foreground,#888);">${escapeHtml(signature).replace(/\n/g, '<br>')}</div>`
-        : '';
-
-      // 원본 메일에 HTML 본문(인라인 이미지 포함)이 있으면 HTML로 전송
-      let finalBody = latestBody;
-      let isHtml = false;
-      if (replyQuoteHtmlRef.current && selectedEmail && (isReplying || isForwarding)) {
-        // 사용자가 입력한 HTML (이미지가 있으면 그대로, 없으면 텍스트→HTML 변환)
-        const userContent = hasInlineImages
-          ? userHtml
-          : escapeHtml(latestBody.trim()).replace(/\n/g, '<br>');
-        const dateStr = escapeHtml(tzFormat(new Date(selectedEmail.date), { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit' }));
-        const sender = escapeHtml(getSenderDisplayName(selectedEmail.from.name, selectedEmail.from.email));
-
-        if (isReplying) {
-          finalBody = `<div>${userContent}</div>${signatureHtml}<br><div>${dateStr} ${sender} 작성:</div><blockquote style="margin:0 0 0 0.8ex;border-left:1px solid #ccc;padding-left:1ex;">${replyQuoteHtmlRef.current}</blockquote>`;
-        } else if (isForwarding) {
-          const toLine = escapeHtml(selectedEmail.to.map((t) => formatAddressLabel(t.name, t.email)).join(', '));
-          finalBody = `<div>${userContent}</div>${signatureHtml}<br><div>---------- 전달된 메시지 ----------</div><div>보낸 사람: ${sender}</div><div>날짜: ${dateStr}</div><div>제목: ${escapeHtml(selectedEmail.subject)}</div><div>받는 사람: ${toLine}</div><br>${replyQuoteHtmlRef.current}`;
-        }
-        isHtml = true;
-      } else if (hasInlineImages) {
-        // 새 메일 작성 또는 인용문 없는 경우에도 인라인 이미지가 있으면 HTML로 전송
-        finalBody = userHtml + signatureHtml;
-        isHtml = true;
-      } else if (signature) {
-        // 텍스트 전용 (인라인 이미지 없고, 인용문 없는 경우)
-        finalBody = latestBody + '\n\n' + signature;
-      }
-
-      const draft: EmailDraft = {
-        to: toList,
-        cc: ccList.length > 0 ? ccList : undefined,
-        bcc: bccList.length > 0 ? bccList : undefined,
-        subject: replySubject,
-        body: finalBody,
-        isHtml: isHtml || undefined,
-        replyToMessageId: isReplying ? selectedEmail?.id : undefined,
-        threadId: shouldThread ? selectedEmail?.threadId : undefined,
-        attachments: attachments.length > 0 ? attachments : undefined,
-      };
 
       // 큐에 추가 (1분 후 실제 전송)
       const capturedDraftId = draftId;
@@ -2943,6 +2963,16 @@ function EmailViewComponent() {
                 <Button variant="outline" size="sm" onClick={handleCancelReply}>
                   {cancelLabel}
                 </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={handlePreviewReply}
+                  disabled={isSending || !replyTo.trim()}
+                  title={'\uBCF4\uB0B4\uAE30 \uC804 \uC2E4\uC81C \uBC1C\uC1A1 \uB0B4\uC6A9 \uBBF8\uB9AC\uBCF4\uAE30'}
+                >
+                  <Eye className="h-4 w-4 mr-2" />
+                  {'\uBBF8\uB9AC\uBCF4\uAE30'}
+                </Button>
                 <Button size="sm" onClick={handleSendReply} disabled={isSending || !replyTo.trim()}>
                   {isSending ? (
                     <Loader2 className="h-4 w-4 animate-spin mr-2" />
@@ -3190,6 +3220,12 @@ function EmailViewComponent() {
           </div>
         </div>
       )}
+      {/* 보내기 전 미리보기 */}
+      <EmailPreviewDialog
+        draft={previewDraft}
+        open={previewDraft !== null}
+        onClose={() => setPreviewDraft(null)}
+      />
     </div>
   );
 }

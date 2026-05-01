@@ -79,8 +79,10 @@ export const useCalendarStore = create<CalendarState>((set, get) => ({
         timeMax = endOfWeek(targetDate, { weekStartsOn: 0 });
         break;
       case 'month':
-        timeMin = startOfMonth(targetDate);
-        timeMax = endOfMonth(targetDate);
+        // Fetch the full month-grid range (incl. leading/trailing days from
+        // adjacent months) so the calendar grid shows events on those cells.
+        timeMin = startOfWeek(startOfMonth(targetDate), { weekStartsOn: 0 });
+        timeMax = endOfWeek(endOfMonth(targetDate), { weekStartsOn: 0 });
         break;
     }
 

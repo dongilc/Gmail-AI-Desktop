@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, RefreshCw, Trash2, Pencil } from "lucide-react";
+import { ChevronLeft, ChevronRight, Calendar as CalendarIcon, RefreshCw, Trash2, Pencil, Plus } from "lucide-react";
 import {
   format,
   addDays,
@@ -282,13 +282,13 @@ export function Calendar() {
       ? startOfDay(selectedDateWall)
       : viewType === "week"
       ? startOfWeek(selectedDateWall, { weekStartsOn: 0 })
-      : startOfMonth(selectedDateWall);
+      : startOfWeek(startOfMonth(selectedDateWall), { weekStartsOn: 0 });
   const rangeEnd =
     viewType === "day"
       ? endOfDay(selectedDateWall)
       : viewType === "week"
       ? endOfWeek(selectedDateWall, { weekStartsOn: 0 })
-      : endOfMonth(selectedDateWall);
+      : endOfWeek(endOfMonth(selectedDateWall), { weekStartsOn: 0 });
 
   type WallItem = CalendarItem & { startWall: Date; endWall: Date };
 
@@ -670,15 +670,26 @@ export function Calendar() {
           </div>
         </div>
         </div>
-        <div className="flex items-center gap-4">
-          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
-            <Checkbox checked={showEvents} onCheckedChange={() => setShowEvents((v) => !v)} />
-            <span>{LABEL_EVENT}</span>
-          </label>
-          <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
-            <Checkbox checked={showTodos} onCheckedChange={() => setShowTodos((v) => !v)} />
-            <span>{LABEL_TASK}</span>
-          </label>
+        <div className="flex items-center justify-between gap-4">
+          <div className="flex items-center gap-4">
+            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+              <Checkbox checked={showEvents} onCheckedChange={() => setShowEvents((v) => !v)} />
+              <span>{LABEL_EVENT}</span>
+            </label>
+            <label className="flex items-center gap-2 text-xs text-muted-foreground cursor-pointer">
+              <Checkbox checked={showTodos} onCheckedChange={() => setShowTodos((v) => !v)} />
+              <span>{LABEL_TASK}</span>
+            </label>
+          </div>
+          <Button
+            size="sm"
+            className="h-7 text-xs"
+            onClick={() => openCreateDialog()}
+            disabled={!currentAccountId}
+          >
+            <Plus className="h-3.5 w-3.5 mr-1" />
+            일정 추가
+          </Button>
         </div>
       </div>
 
@@ -710,6 +721,15 @@ export function Calendar() {
                   <Checkbox checked={showTodos} onCheckedChange={() => setShowTodos((v) => !v)} />
                   <span>{LABEL_TASK}</span>
                 </label>
+                <Button
+                  size="sm"
+                  className="h-7 text-xs"
+                  onClick={() => openCreateDialog(selectedMonthDay)}
+                  disabled={!currentAccountId}
+                >
+                  <Plus className="h-3.5 w-3.5 mr-1" />
+                  일정 추가
+                </Button>
                 <span className="flex items-center gap-1">
                   <Button
                     variant="ghost"
