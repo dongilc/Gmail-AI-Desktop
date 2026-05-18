@@ -37,6 +37,20 @@ export class GmailService {
     return parts.join('\r\n ');
   }
 
+  // From 헤더 작성 — 한글 등 비ASCII 표시이름은 RFC 2047로 인코딩한다.
+  // (인코딩하지 않으면 일부 수신 메일 시스템이 raw UTF-8을 잘못 해석해 깨짐)
+  private formatFromHeader(name: string, email: string): string {
+    if (!name || name === email) return `From: ${email}`;
+    // ASCII 표시이름: 그대로 사용하되 특수문자가 있으면 따옴표로 감싼다
+    if (/^[\x20-\x7E]*$/.test(name)) {
+      const needsQuote = /[()<>@,;:\\".\[\]]/.test(name);
+      const safe = needsQuote ? `"${name.replace(/(["\\])/g, '\\$1')}"` : name;
+      return `From: ${safe} <${email}>`;
+    }
+    // 비ASCII 표시이름: 제목과 동일한 방식으로 RFC 2047 인코딩
+    return `From: ${this.encodeMimeSubject(name)} <${email}>`;
+  }
+
   private buildRawMessage(draft: EmailDraft): string {
     // Extract inline data-URI images from HTML body
     let htmlBody = draft.body || '';
@@ -73,6 +87,7 @@ export class GmailService {
 
     // Common headers (without Content-Type, added per-case below)
     const baseHeaders = [
+      draft.from ? this.formatFromHeader(draft.from.name, draft.from.email) : '',
       draft.to?.length ? `To: ${draft.to.join(', ')}` : '',
       draft.cc?.length ? `Cc: ${draft.cc.join(', ')}` : '',
       draft.bcc?.length ? `Bcc: ${draft.bcc.join(', ')}` : '',

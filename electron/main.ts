@@ -1065,19 +1065,27 @@ ipcMain.handle('gmail:get-message', async (_, accountId: string, messageId: stri
   return mergedEmail;
 });
 
+// 보내는 계정 정보를 draft.from에 주입 — From 헤더를 직접 RFC 2047 인코딩해 작성하기 위함
+function withFromAccount(accountId: string, draft: any): any {
+  if (draft?.from) return draft;
+  const account = googleAuth.getAccount(accountId);
+  if (!account) return draft;
+  return { ...draft, from: { name: account.name, email: account.email } };
+}
+
 ipcMain.handle('gmail:send-message', async (_, accountId: string, draft: any) => {
   const auth = await googleAuth.getAuthClient(accountId);
-  return await gmailService.sendMessage(auth, draft);
+  return await gmailService.sendMessage(auth, withFromAccount(accountId, draft));
 });
 
 ipcMain.handle('gmail:create-draft', async (_, accountId: string, draft: any) => {
   const auth = await googleAuth.getAuthClient(accountId);
-  return await gmailService.createDraft(auth, draft);
+  return await gmailService.createDraft(auth, withFromAccount(accountId, draft));
 });
 
 ipcMain.handle('gmail:update-draft', async (_, accountId: string, draftId: string, draft: any) => {
   const auth = await googleAuth.getAuthClient(accountId);
-  return await gmailService.updateDraft(auth, draftId, draft);
+  return await gmailService.updateDraft(auth, draftId, withFromAccount(accountId, draft));
 });
 
 ipcMain.handle('gmail:delete-draft', async (_, accountId: string, draftId: string) => {

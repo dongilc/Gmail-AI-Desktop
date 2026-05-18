@@ -421,8 +421,14 @@ export function EmailList() {
     });
   }, []);
 
-  const toLocalInputValue = (date: Date) => formatForDateTimeLocal(date);
   const toLocalDateValue = (date: Date) => formatForDateInput(date);
+
+  // 시작 datetime-local 문자열 → 종료(+1시간) 문자열
+  const endFromStart = (startValue: string) => {
+    const start = parseWallTimeInAppTz(startValue);
+    if (Number.isNaN(start.getTime())) return startValue;
+    return formatForDateTimeLocal(new Date(start.getTime() + 60 * 60000));
+  };
 
   const decodeHtmlEntities = (text: string) => {
     const textarea = document.createElement('textarea');
@@ -451,14 +457,14 @@ export function EmailList() {
     setEventLoading(false);
     setEventAllDay(false);
 
-    // 메일 날짜 기반으로 시작/종료 설정
+    // 메일(또는 추출된 마감일) 날짜 기반, 기본 시작 09:00 / 종료 10:00
     const emailDate = email.date ? new Date(email.date) : new Date();
-    const startDate = action.dueDate ? new Date(action.dueDate) : emailDate;
-    const endDate = new Date(startDate.getTime() + 60 * 60000); // 1시간 후
+    const baseDate = action.dueDate ? new Date(action.dueDate) : emailDate;
+    const dateStr = toLocalDateValue(baseDate);
 
     setEventTitle(decodeHtmlEntities(email.subject || '(제목 없음)'));
-    setEventStart(toLocalInputValue(startDate));
-    setEventEnd(toLocalInputValue(endDate));
+    setEventStart(`${dateStr}T09:00`);
+    setEventEnd(`${dateStr}T10:00`);
     setEventLocation('');
 
     // 설명에 메일 내용 넣기 (HTML을 텍스트로 변환, 줄바꿈 유지)
@@ -515,9 +521,10 @@ export function EmailList() {
             setEventStart(result.startLocal?.slice(0, 10) || toLocalDateValue(emailDate));
             setEventEnd(result.endLocal?.slice(0, 10) || toLocalDateValue(emailDate));
           } else {
-            setEventStart(result.startLocal || toLocalInputValue(emailDate));
-            const defaultEnd = new Date(emailDate.getTime() + 60 * 60000);
-            setEventEnd(result.endLocal || toLocalInputValue(defaultEnd));
+            // AI가 시작 시각을 못 찾으면 메일 받은 날 09:00, 종료는 시작 + 1시간
+            const startVal = result.startLocal || `${toLocalDateValue(emailDate)}T09:00`;
+            setEventStart(startVal);
+            setEventEnd(result.endLocal || endFromStart(startVal));
           }
 
           // 설명 설정
@@ -1107,13 +1114,8 @@ export function EmailList() {
                     onChange={(e) => {
                       const newStart = e.target.value;
                       setEventStart(newStart);
-                      // 종료가 시작보다 작으면 시작 + 1시간으로 설정
-                      if (eventEnd && newStart >= eventEnd) {
-                        const startDate = new Date(newStart);
-                        const newEnd = new Date(startDate.getTime() + 60 * 60000);
-                        const offset = newEnd.getTimezoneOffset() * 60000;
-                        setEventEnd(new Date(newEnd.getTime() - offset).toISOString().slice(0, 16));
-                      }
+                      // 시작을 바꾸면 종료는 항상 시작 + 1시간으로 연동
+                      if (newStart) setEventEnd(endFromStart(newStart));
                     }}
                     disabled={eventLoading}
                   />

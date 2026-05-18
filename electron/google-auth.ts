@@ -264,6 +264,10 @@ export class GoogleAuth {
     return Array.from(this.accounts.values());
   }
 
+  getAccount(accountId: string): Account | undefined {
+    return this.accounts.get(accountId);
+  }
+
   async getAuthClient(accountId: string): Promise<Auth.OAuth2Client> {
     const auth = this.authClients.get(accountId);
     if (!auth) {

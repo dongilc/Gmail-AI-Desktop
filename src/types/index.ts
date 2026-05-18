@@ -61,6 +61,8 @@ export interface EmailDraft {
   replyToMessageId?: string;
   threadId?: string;
   attachments?: EmailAttachment[];
+  /** 보내는 사람 정보. 지정 시 From 헤더를 직접 작성(한글 이름 RFC 2047 인코딩)한다. */
+  from?: { name: string; email: string };
 }
 
 export interface Contact {
